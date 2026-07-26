@@ -448,6 +448,48 @@ namespace Segra.Backend.Media
             }
 
             string fpsArg = settings.ClipFps > 0 ? $"-r {settings.ClipFps}" : "";
+            bool useStreamCopy = settings.ClipFps <= 0;
+
+            // HDR handling: detect HDR source and configure pixel format / tone-mapping.
+            // (Not needed when streaming copy since the source video is preserved bit-exact.)
+            string pixFmtArgs = "";
+            string colorArgs = "";
+            string videoFilterArgs = "";
+            string videoCodecArgs = "";
+
+            if (!useStreamCopy)
+            {
+                bool sourceIsHdr = await FFmpegService.IsHdrVideo(inputFilePath);
+                if (sourceIsHdr)
+                {
+                    bool encoderSupports10Bit = videoCodec switch
+                    {
+                        "hevc_nvenc" or "hevc_amf" or "hevc_qsv" or
+                        "av1_nvenc" or "av1_amf" or "av1_qsv" or
+                        "libx265" => true,
+                        _ => false
+                    };
+
+                    if (encoderSupports10Bit)
+                    {
+                        pixFmtArgs = "-pix_fmt yuv420p10le ";
+                        if (videoCodec.Contains("hevc") || videoCodec == "libx265")
+                            colorArgs = "-profile:v main10 -colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
+                        else
+                            colorArgs = "-colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
+                    }
+                    else
+                    {
+                        videoFilterArgs = "-vf \"zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p\" ";
+                        pixFmtArgs = "-pix_fmt yuv420p ";
+                    }
+                }
+                videoCodecArgs = $"-c:v {videoCodec} {colorArgs}{presetArgs} {qualityArgs} {pixFmtArgs}{fpsArg} ";
+            }
+            else
+            {
+                videoCodecArgs = "-c:v copy ";
+            }
 
             // Build audio mapping, filter, and metadata based on per-segment muted tracks
             string mapArgs = "";
@@ -671,7 +713,7 @@ namespace Segra.Backend.Media
             // mismatched samples at the wrong rate (the reported "shrunken audio").
             string audioRateArg = targetAudioLayout != null ? "-ar 48000 " : "";
             string arguments = $"-y -ss {startTime.ToString(CultureInfo.InvariantCulture)} -t {duration.ToString(CultureInfo.InvariantCulture)} " +
-                             $"-i \"{inputFilePath}\" {extraInputArgs}{filterArgs}{mapArgs}-c:v {videoCodec} {presetArgs} {qualityArgs} {fpsArg} " +
+                             $"-i \"{inputFilePath}\" {extraInputArgs}{videoFilterArgs}{filterArgs}{mapArgs}{videoCodecArgs}" +
                              $"-c:a aac -b:a {settings.ClipAudioQuality} {audioRateArg}{metadataArgs}-t {duration.ToString(CultureInfo.InvariantCulture)} -movflags +faststart \"{outputFilePath}\"";
             Log.Information("Extracting clip");
             Log.Information($"FFmpeg arguments: {arguments}");
