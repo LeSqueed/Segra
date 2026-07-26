@@ -71,6 +71,7 @@ namespace Segra.Backend.Core.Models
         private string _clipAudioQuality = "128k";
         private string _clipPreset = "veryfast";
         private bool _clipKeepSeparateAudioTracks = false;
+        private string _clipHdrMode = "source"; // "source" or "sdr"
         private float _soundEffectsVolume = 0.5f;
         private bool _showNewBadgeOnVideos = false;
         private bool _showGameBackground = true;
@@ -731,6 +732,19 @@ namespace Segra.Backend.Core.Models
                 if (_clipKeepSeparateAudioTracks != value)
                 {
                     _clipKeepSeparateAudioTracks = value;
+                }
+            }
+        }
+
+        [JsonPropertyName("clipHdrMode")]
+        public string ClipHdrMode
+        {
+            get => _clipHdrMode;
+            set
+            {
+                if (_clipHdrMode != value)
+                {
+                    _clipHdrMode = value;
                 }
             }
         }

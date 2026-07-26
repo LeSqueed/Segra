@@ -281,6 +281,13 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+            if (settings.ClipHdrMode != updatedSettings.ClipHdrMode)
+            {
+                Log.Information($"ClipHdrMode changed from '{settings.ClipHdrMode}' to '{updatedSettings.ClipHdrMode}'");
+                settings.ClipHdrMode = updatedSettings.ClipHdrMode;
+                hasChanges = true;
+            }
+
             if (settings.SoundEffectsVolume != updatedSettings.SoundEffectsVolume)
             {
                 Log.Information($"SoundEffectsVolume changed from '{settings.SoundEffectsVolume}' to '{updatedSettings.SoundEffectsVolume}'");

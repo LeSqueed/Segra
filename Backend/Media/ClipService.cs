@@ -449,17 +449,33 @@ namespace Segra.Backend.Media
 
             string fpsArg = settings.ClipFps > 0 ? $"-r {settings.ClipFps}" : "";
 
-            // Use stream copy when no FPS change is needed: ClipFps is 0 (Original) or matches source FPS.
+            // Determine stream-copy eligibility and HDR state with a single metadata fetch.
+            bool wantsSdr = string.Equals(settings.ClipHdrMode, "sdr", StringComparison.OrdinalIgnoreCase);
+
             bool useStreamCopy;
+            bool sourceIsHdr = false;
+            int sourcePeak = 0;
+
             if (settings.ClipFps <= 0)
             {
                 useStreamCopy = true;
             }
-            else
+            else if (!wantsSdr)
             {
+                // Only need metadata for FPS check (not HDR), fetch once.
                 string metadata = await FFmpegService.GetMetadata(inputFilePath);
                 int sourceFps = FFmpegService.ExtractFps(metadata);
                 useStreamCopy = settings.ClipFps == sourceFps;
+            }
+            else
+            {
+                // wantsSdr: need metadata for both FPS and HDR detection.
+                string metadata = await FFmpegService.GetMetadata(inputFilePath);
+                int sourceFps = FFmpegService.ExtractFps(metadata);
+                useStreamCopy = settings.ClipFps == sourceFps;
+                sourceIsHdr = FFmpegService.ExtractIsHdr(metadata);
+                if (sourceIsHdr)
+                    sourcePeak = FFmpegService.ExtractPeakLuminance(metadata);
             }
 
             // HDR handling: detect HDR source and configure pixel format / tone-mapping.
@@ -469,9 +485,19 @@ namespace Segra.Backend.Media
             string videoFilterArgs = "";
             string videoCodecArgs = "";
 
-            if (!useStreamCopy)
+            if (wantsSdr)
             {
-                bool sourceIsHdr = await FFmpegService.IsHdrVideo(inputFilePath);
+                // Re-encode required for tone-mapping even if FPS matches
+                useStreamCopy = false;
+                if (sourceIsHdr)
+                {
+                    videoFilterArgs = "-vf \"libplacebo=tonemapping=hable:gamut_mode=perceptual:peak_detect=1:contrast_recovery=0.35:smoothing_period=60:scene_threshold_low=5.5:scene_threshold_high=10:deband=true:deband_iterations=3:deband_threshold=8:deband_radius=24:dithering=blue:dither_temporal=true\" ";
+                }
+                pixFmtArgs = "-pix_fmt yuv420p ";
+                videoCodecArgs = $"-c:v {videoCodec} {presetArgs} {qualityArgs} {pixFmtArgs}{fpsArg} ";
+            }
+            else if (!useStreamCopy)
+            {
                 if (sourceIsHdr)
                 {
                     // Auto-upgrade to a 10-bit-capable codec so HDR is preserved

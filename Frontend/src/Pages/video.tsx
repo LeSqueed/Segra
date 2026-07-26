@@ -1191,7 +1191,9 @@ export default function VideoComponent({ video }: { video: Content }) {
 
     const params = {
       OutputMode: clipOutputMode,
-      Segments: segments.map((s) => ({
+      Segments: segments
+        .filter((s) => s.fileName === video.fileName)
+        .map((s) => ({
         id: s.id,
         type: s.type,
         fileName: s.fileName,
