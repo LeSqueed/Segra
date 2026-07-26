@@ -448,7 +448,19 @@ namespace Segra.Backend.Media
             }
 
             string fpsArg = settings.ClipFps > 0 ? $"-r {settings.ClipFps}" : "";
-            bool useStreamCopy = settings.ClipFps <= 0;
+
+            // Use stream copy when no FPS change is needed: ClipFps is 0 (Original) or matches source FPS.
+            bool useStreamCopy;
+            if (settings.ClipFps <= 0)
+            {
+                useStreamCopy = true;
+            }
+            else
+            {
+                string metadata = await FFmpegService.GetMetadata(inputFilePath);
+                int sourceFps = FFmpegService.ExtractFps(metadata);
+                useStreamCopy = settings.ClipFps == sourceFps;
+            }
 
             // HDR handling: detect HDR source and configure pixel format / tone-mapping.
             // (Not needed when streaming copy since the source video is preserved bit-exact.)
@@ -462,28 +474,29 @@ namespace Segra.Backend.Media
                 bool sourceIsHdr = await FFmpegService.IsHdrVideo(inputFilePath);
                 if (sourceIsHdr)
                 {
-                    bool encoderSupports10Bit = videoCodec switch
+                    // Auto-upgrade to a 10-bit-capable codec so HDR is preserved
+                    string hdrVideoCodec = videoCodec switch
                     {
-                        "hevc_nvenc" or "hevc_amf" or "hevc_qsv" or
-                        "av1_nvenc" or "av1_amf" or "av1_qsv" or
-                        "libx265" => true,
-                        _ => false
+                        "h264_nvenc" => "hevc_nvenc",
+                        "h264_amf" => "hevc_amf",
+                        "h264_qsv" => "hevc_qsv",
+                        "libx264" => "libx265",
+                        _ => videoCodec
                     };
 
-                    if (encoderSupports10Bit)
+                    if (hdrVideoCodec != videoCodec)
                     {
-                        pixFmtArgs = "-pix_fmt yuv420p10le ";
-                        if (videoCodec.Contains("hevc") || videoCodec == "libx265")
-                            colorArgs = "-profile:v main10 -colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
-                        else
-                            colorArgs = "-colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
+                        Log.Information($"HDR source detected: upgrading clip encoder from '{videoCodec}' to '{hdrVideoCodec}' to preserve 10-bit");
+                        videoCodec = hdrVideoCodec;
                     }
+
+                    pixFmtArgs = "-pix_fmt yuv420p10le ";
+                    if (videoCodec.Contains("hevc") || videoCodec == "libx265")
+                        colorArgs = "-profile:v main10 -colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
                     else
-                    {
-                        videoFilterArgs = "-vf \"zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p\" ";
-                        pixFmtArgs = "-pix_fmt yuv420p ";
-                    }
+                        colorArgs = "-colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 ";
                 }
+
                 videoCodecArgs = $"-c:v {videoCodec} {colorArgs}{presetArgs} {qualityArgs} {pixFmtArgs}{fpsArg} ";
             }
             else
