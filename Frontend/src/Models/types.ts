@@ -3,6 +3,7 @@ export type ContentType = 'Session' | 'Buffer' | 'Clip' | 'Highlight';
 export type RecordingMode = 'Session' | 'Buffer' | 'Hybrid';
 
 export type DisplayCaptureMethod = 'Auto' | 'DXGI' | 'WGC';
+export type GameCaptureMode = 'DisplayFallback' | 'GameOnly';
 
 export type AudioOutputMode = 'All' | 'GameOnly' | 'GameAndDiscord';
 
@@ -287,6 +288,7 @@ export interface Settings {
   inputNoiseSuppression: boolean;
   selectedDisplay: Display | null;
   displayCaptureMethod: DisplayCaptureMethod;
+  gameCaptureMode: GameCaptureMode;
   selectedOBSVersion: string | null; // null means automatic (latest non-beta)
   enableAi: boolean;
   autoGenerateHighlights: boolean;
@@ -370,6 +372,7 @@ export const initialSettings: Settings = {
   inputNoiseSuppression: true,
   selectedDisplay: null, // Default to null (auto-select)
   displayCaptureMethod: 'Auto',
+  gameCaptureMode: 'DisplayFallback',
   selectedOBSVersion: null, // null means automatic (latest non-beta)
   enableAi: true,
   autoGenerateHighlights: true,
