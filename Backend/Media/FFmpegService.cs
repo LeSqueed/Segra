@@ -450,6 +450,46 @@ namespace Segra.Backend.Media
             @"\b(smpte2084|arib-std-b67)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // Extracts the first video stream's frame rate, e.g. "60 fps" from "... 60 fps, 60 tbr ..."
+        private static readonly Regex _fpsRegex = new(
+            @"(\d+(?:\.\d+)?)\s*fps",
+            RegexOptions.Compiled);
+
+        // Extracts peak luminance from mastering metadata or MaxCLL, e.g. "max_luminance=1000.000000" or "MaxCLL=1000"
+        private static readonly Regex _peakRegex = new(
+            @"max_luminance=(\d+(?:\.\d+)?)|MaxCLL=(\d+)",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// Extracts the first video stream's frame rate from ffmpeg metadata.
+        /// Returns 0 if it can't be determined.
+        /// </summary>
+        public static int ExtractFps(string ffmpegOutput)
+        {
+            if (string.IsNullOrEmpty(ffmpegOutput)) return 0;
+            var match = _fpsRegex.Match(ffmpegOutput);
+            return match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double fps)
+                ? (int)Math.Round(fps)
+                : 0;
+        }
+
+        /// <summary>
+        /// Extracts the peak luminance in nits from ffmpeg metadata (mastering display or MaxCLL).
+        /// Returns 0 if it can't be determined.
+        /// </summary>
+        public static int ExtractPeakLuminance(string ffmpegOutput)
+        {
+            if (string.IsNullOrEmpty(ffmpegOutput)) return 0;
+            var match = _peakRegex.Match(ffmpegOutput);
+            if (match.Success)
+            {
+                string val = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+                if (double.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out double peak))
+                    return (int)Math.Round(peak);
+            }
+            return 0;
+        }
+
         /// <summary>
         /// Returns true if ffmpeg metadata reports an HDR transfer (PQ or HLG).
         /// </summary>

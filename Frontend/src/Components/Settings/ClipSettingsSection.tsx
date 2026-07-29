@@ -396,6 +396,23 @@ export default function ClipSettingsSection({
           </label>
         </div>
       )}
+
+      {/* HDR Mode */}
+      <div className="form-control mt-4">
+        <label className="label">
+          <span className="label-text text-base-content">HDR to SDR</span>
+        </label>
+        <DropdownSelect
+          items={[
+            { value: 'source', label: 'Same as Source (preserve HDR)' },
+            { value: 'sdr', label: 'Convert to SDR (tone-mapping)' },
+          ]}
+          value={settings.clipHdrMode}
+          onChange={(val) =>
+            updateSettings({ clipHdrMode: val as 'source' | 'sdr' })
+          }
+        />
+      </div>
     </div>
   );
 }

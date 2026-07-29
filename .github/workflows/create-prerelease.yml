@@ -252,6 +252,17 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: ./publish
 
+      - name: Install full ffmpeg build (libplacebo)
+        shell: pwsh
+        run: |
+          $ffmpegArchive = "$env:TEMP\ffmpeg.7z"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile $ffmpegArchive
+          $extractDir = "$env:TEMP\ffmpeg-temp"
+          7z x $ffmpegArchive -o"$extractDir" -y | Out-Null
+          $exe = Get-ChildItem -Recurse -Filter "ffmpeg.exe" $extractDir | Select-Object -First 1 -ExpandProperty FullName
+          Copy-Item $exe "./publish/ffmpeg.exe" -Force
+          Remove-Item $ffmpegArchive, $extractDir -Recurse -Force
+
       - name: Package with vpk
         run: vpk pack -u Segra -v ${{ env.new_version }} -p ./publish -e Segra.exe -o ./output --packTitle "Segra" --noPortable -i ./Resources/icon.ico -s ./Resources/splash.png --splashProgressColor "#fecb00" --framework webview2
         shell: pwsh
