@@ -45,6 +45,7 @@ namespace Segra.Backend.Core.Models
         private bool _forceMonoInputSources = false;
         private Display? _selectedDisplay = null;
         private DisplayCaptureMethod _displayCaptureMethod = DisplayCaptureMethod.Auto;
+        private GameCaptureMode _gameCaptureMode = GameCaptureMode.DisplayFallback;
         private WindowState? _lastWindowState = null;
         private bool _enableAi = true;
         private bool _autoGenerateHighlights = true;
@@ -362,6 +363,19 @@ namespace Segra.Backend.Core.Models
                 if (_displayCaptureMethod != value)
                 {
                     _displayCaptureMethod = value;
+                }
+            }
+        }
+
+        [JsonPropertyName("gameCaptureMode")]
+        public GameCaptureMode GameCaptureMode
+        {
+            get => _gameCaptureMode;
+            set
+            {
+                if (_gameCaptureMode != value)
+                {
+                    _gameCaptureMode = value;
                 }
             }
         }
@@ -1297,6 +1311,13 @@ namespace Segra.Backend.Core.Models
         Auto,
         DXGI,
         WGC
+    }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public enum GameCaptureMode
+    {
+        DisplayFallback,
+        GameOnly
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]

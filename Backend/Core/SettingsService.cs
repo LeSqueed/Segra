@@ -687,6 +687,13 @@ namespace Segra.Backend.Core
                 hasChanges = true;
             }
 
+            if (settings.GameCaptureMode != updatedSettings.GameCaptureMode)
+            {
+                Log.Information($"GameCaptureMode changed from '{settings.GameCaptureMode}' to '{updatedSettings.GameCaptureMode}'");
+                settings.GameCaptureMode = updatedSettings.GameCaptureMode;
+                hasChanges = true;
+            }
+
             if (settings.EnableAi != updatedSettings.EnableAi)
             {
                 Log.Information($"EnableAi changed from '{settings.EnableAi}' to '{updatedSettings.EnableAi}'");

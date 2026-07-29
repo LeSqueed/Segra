@@ -23,6 +23,7 @@ namespace Segra.Backend.Games
         public int ReplayBufferMaxSize { get; set; } = 1000;
         public bool DiscardSessionsWithoutBookmarks { get; set; }
         public bool EnableHdr { get; set; } = true;
+        public GameCaptureMode GameCaptureMode { get; set; } = GameCaptureMode.DisplayFallback;
 
         // Multiplier applied on top of each audio source's configured device volume.
         public float VolumeMultiplier { get; set; } = 1.0f;
@@ -83,7 +84,8 @@ namespace Segra.Backend.Games
                 ReplayBufferDuration = s.ReplayBufferDuration,
                 ReplayBufferMaxSize = s.ReplayBufferMaxSize,
                 DiscardSessionsWithoutBookmarks = s.DiscardSessionsWithoutBookmarks,
-                EnableHdr = s.EnableHdr
+                EnableHdr = s.EnableHdr,
+                GameCaptureMode = s.GameCaptureMode
             };
 
             var match = FindForExePath(exePath);

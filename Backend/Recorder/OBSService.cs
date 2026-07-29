@@ -125,6 +125,20 @@ namespace Segra.Backend.Recorder
             public readonly TaskCompletionSource<string?> Signal = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
+        // Stores the context needed to complete recording setup once the game capture hooks
+        // (GameOnly mode). Non-null means we're waiting for the game hook.
+        private sealed record PendingGameOnlyStart(
+            string Name,
+            string ExePath,
+            string FileName,
+            int? Pid,
+            EffectiveRecordingSettings Settings,
+            bool IsSessionMode,
+            bool IsHybridMode,
+            bool IsReplayBufferMode);
+
+        private static PendingGameOnlyStart? _pendingGameOnlyStart;
+
         // Ensures an unexpected stop is handled once even if multiple outputs stop together (e.g. hybrid mode)
         private static int _unexpectedStopHandled = 0;
 
@@ -896,8 +910,13 @@ namespace Segra.Backend.Recorder
 #if WINDOWS
             else
             {
-                // Add display capture first (bottom layer - fallback)
-                AddMonitorCapture();
+                bool isGameOnlyMode = eff.GameCaptureMode == GameCaptureMode.GameOnly;
+
+                if (!isGameOnlyMode)
+                {
+                    // Add display capture first (bottom layer - fallback)
+                    AddMonitorCapture();
+                }
 
                 // Create game capture source for automatic game detection
                 try
@@ -957,6 +976,10 @@ namespace Segra.Backend.Recorder
                     _gameCaptureItem?.SetBounds(boundsType, _currentBaseWidth, _currentBaseHeight).SetPosition(0, 0);
                     _displayItem?.SetBounds(boundsType, _currentBaseWidth, _currentBaseHeight).SetPosition(0, 0);
                 }
+                else if (isGameOnlyMode)
+                {
+                    Log.Information("GameOnly mode: window not found yet, will use base dimensions.");
+                }
                 else
                 {
                     _ = Task.Run(StopRecording);
@@ -976,6 +999,43 @@ namespace Segra.Backend.Recorder
             // Set scene as program output (channel 0)
             Obs.SetOutputSource(_mainScene);
 
+            // GameOnly mode: defer encoder/output creation until the game hook fires.
+            if (!startManually && eff.GameCaptureMode == GameCaptureMode.GameOnly)
+            {
+                Log.Information("GameOnly mode: waiting for game capture hook before starting output.");
+                AppState.Instance.PreRecording = new PreRecording
+                {
+                    Game = name,
+                    Status = "Waiting to start",
+                    CoverImageId = GameUtils.GetCoverImageIdFromExePath(exePath),
+                    Pid = pid,
+                    Exe = exePath
+                };
+
+                _pendingGameOnlyStart = new PendingGameOnlyStart(
+                    name, exePath, fileName, pid, eff,
+                    isSessionMode, isHybridMode, isReplayBufferMode);
+
+                // Release the semaphore so StopRecording can be called while waiting
+                return true;
+            }
+
+            // DisplayFallback or manual mode: proceed immediately with encoder and output setup.
+            if (!CompleteRecordingStart(name, exePath, fileName, pid, eff, isSessionMode, isHybridMode, isReplayBufferMode))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Phase 2 of recording start: creates encoder, audio sources, outputs and begins the recording.
+        /// Called immediately (DisplayFallback) or deferred from the game hook event (GameOnly).
+        /// </summary>
+        private static bool CompleteRecordingStart(
+            string name, string exePath, string fileName, int? pid,
+            EffectiveRecordingSettings eff,
+            bool isSessionMode, bool isHybridMode, bool isReplayBufferMode)
+        {
             string encoderId = eff.Codec!.InternalEncoderId;
             if (_isHdrRecording && _hdrEncoderId != null)
                 encoderId = _hdrEncoderId;
@@ -984,9 +1044,6 @@ namespace Segra.Backend.Recorder
             using var videoEncoderSettings = new ObsKit.NET.Core.Settings();
             videoEncoderSettings.Set("keyint_sec", 1);
 
-            // Encoder families expose different settings schemas, so each is configured on its own
-            // terms rather than configuring one and patching for the others. VAAPI (the Linux GPU
-            // path) is the second family; NVENC/QSV/AMF/x264 share the schema below.
             if (IsVaapiEncoder(encoderId))
             {
                 ConfigureVaapiVideoEncoder(videoEncoderSettings, encoderId, eff);
@@ -994,7 +1051,6 @@ namespace Segra.Backend.Recorder
             else
             {
                 videoEncoderSettings.Set("preset", "Quality");
-                // HEVC needs the Main 10 profile for 10-bit HDR; AV1 derives bit depth from the P010 input.
                 videoEncoderSettings.Set("profile", _isHdrRecording && EncoderInfo.Get(encoderId)?.Codec == "hevc" ? "main10" : "high");
                 videoEncoderSettings.Set("use_bufsize", true);
                 videoEncoderSettings.Set("rate_control", eff.RateControl);
@@ -1007,7 +1063,6 @@ namespace Segra.Backend.Recorder
                         videoEncoderSettings.Set("max_bitrate", targetBitrateKbps);
                         videoEncoderSettings.Set("bufsize", targetBitrateKbps);
                         break;
-
                     case "VBR":
                         int minBitrateKbps = eff.MinBitrate * 1000;
                         int maxBitrateKbps = eff.MaxBitrate * 1000;
@@ -1015,18 +1070,13 @@ namespace Segra.Backend.Recorder
                         videoEncoderSettings.Set("max_bitrate", maxBitrateKbps);
                         videoEncoderSettings.Set("bufsize", maxBitrateKbps);
                         break;
-
                     case "CRF":
-                        // Software x264 path mainly; no explicit bitrate
                         videoEncoderSettings.Set("crf", eff.CrfValue);
                         break;
-
                     case "CQP":
-                        // Hardware encoders (NVENC/QSV/AMF) often use cqp/cq; provide both cqp and qp for compatibility
                         videoEncoderSettings.Set("cqp", eff.CqLevel);
                         videoEncoderSettings.Set("qp", eff.CqLevel);
                         break;
-
                     default:
                         AppState.Instance.PreRecording = null;
                         throw new Exception("Unsupported Rate Control method.");
@@ -1041,7 +1091,6 @@ namespace Segra.Backend.Recorder
             }
             catch (Exception ex) when (_isHdrRecording)
             {
-                // Some older GPUs expose an HEVC/AV1 encoder but cannot encode 10-bit; fall back to SDR.
                 Log.Warning($"Failed to create HDR encoder '{encoderId}' ({ex.Message}); falling back to SDR.");
                 _isHdrRecording = false;
                 _hdrEncoderId = null;
@@ -1070,9 +1119,7 @@ namespace Segra.Backend.Recorder
                             ? AudioInputCapture.FromDefault(sourceName)
                             : AudioInputCapture.FromDevice(deviceSetting.Id, sourceName);
 
-                        // Apply Force Mono if enabled
                         SetForceMono(micSource, Settings.Instance.ForceMonoInputSources);
-
                         micSource.Volume = deviceSetting.Volume;
 
                         _mainScene!.AddSource(micSource);
@@ -1104,7 +1151,6 @@ namespace Segra.Backend.Recorder
 
             var audioOutputMode = Settings.Instance.AudioOutputMode;
 
-            // Always add desktop audio sources - they serve as fallback until game hooks in GameOnly/GameAndDiscord modes
             if (Settings.Instance.OutputDevices != null && Settings.Instance.OutputDevices.Count > 0)
             {
                 foreach (var deviceSetting in Settings.Instance.OutputDevices)
@@ -1126,9 +1172,6 @@ namespace Segra.Backend.Recorder
                 }
             }
 
-            // In GameAndDiscord mode, capture audio from running voice chat apps. Sources start muted
-            // (desktop audio covers voice chat until the game hooks); apps launched mid-recording are
-            // added via OnVoiceChatAppStarted.
             if (audioOutputMode == AudioOutputMode.GameAndDiscord && GameCaptureSource != null)
             {
                 foreach (var app in VoiceChatApps)
@@ -1139,11 +1182,6 @@ namespace Segra.Backend.Recorder
                 }
             }
 
-            // Configure mixers and audio encoders based on setting.
-            // If enabled: Track 1 = Full Mix, Tracks 2..6 = per-group isolated (up to 5 groups)
-            // If disabled: Track 1 only (Full Mix)
-            // Each group shares one isolated track; all voice chat apps form a single "Voice Chat" group.
-            // In GameOnly/GameAndDiscord modes, desktop sources are fallback-only (full mix only).
             var trackGroups = new List<List<Source>>();
             foreach (var micSource in _micSources)
                 trackGroups.Add([micSource]);
@@ -1153,21 +1191,17 @@ namespace Segra.Backend.Recorder
             int voiceChatGroupIndex = -1;
             if (audioOutputMode != AudioOutputMode.All && GameCaptureSource != null)
             {
-                // Desktop sources are fallback-only: assign to full mix (Track 1) only, no separate tracks
                 foreach (var desktopSource in _desktopSources)
                 {
                     try { desktopSource.AudioMixers = 1u << 0; }
                     catch (Exception ex) { Log.Warning($"Failed to set mixer for fallback desktop source: {ex.Message}"); }
                 }
 
-                // Remove desktop sources from the list that gets separate tracks
                 trackGroups = [];
                 foreach (var micSource in _micSources)
                     trackGroups.Add([micSource]);
                 trackGroups.Add([GameCaptureSource]);
 
-                // The voice chat group is reserved even when currently empty so apps launched
-                // mid-recording can still join its track (the encoders are fixed once recording starts)
                 if (audioOutputMode == AudioOutputMode.GameAndDiscord)
                 {
                     voiceChatGroupIndex = trackGroups.Count;
@@ -1175,7 +1209,6 @@ namespace Segra.Backend.Recorder
                 }
             }
 
-            // Build list of device names for encoder naming
             var audioDeviceNames = new List<string>();
             if (Settings.Instance.InputDevices != null)
             {
@@ -1198,126 +1231,79 @@ namespace Segra.Backend.Recorder
             }
 
             bool separateTracks = Settings.Instance.EnableSeparateAudioTracks;
-            int maxTracks = 6; // OBS supports up to 6 audio tracks
-            int perSourceTracks = separateTracks ? Math.Min(trackGroups.Count, maxTracks - 1) : 0; // tracks 2..6 for groups
-            int trackCount = 1 + perSourceTracks; // Track 1 is always the full mix
+            int maxTracks = 6;
+            int perSourceTracks = separateTracks ? Math.Min(trackGroups.Count, maxTracks - 1) : 0;
+            int trackCount = 1 + perSourceTracks;
 
             _voiceChatMixerMask = 1u << 0;
             for (int i = 0; i < trackGroups.Count; i++)
             {
-                // Always include Track 1 (bit 0) as a full mix
                 uint mixersMask = 1u << 0;
-
-                // If enabled, give first 5 groups their own isolated tracks on 2..6 (bits 1..5)
                 if (separateTracks && i < (maxTracks - 1))
-                {
                     mixersMask |= (uint)(1 << (i + 1));
-                }
                 else if (separateTracks)
-                {
-                    Log.Warning($"Audio group index {i} exceeds {maxTracks - 1} dedicated tracks. It will be available in the master mix (Track 1) only.");
-                }
+                    Log.Warning($"Audio group index {i} exceeds {maxTracks - 1} dedicated tracks.");
 
                 if (i == voiceChatGroupIndex)
                     _voiceChatMixerMask = mixersMask;
 
                 foreach (var source in trackGroups[i])
                 {
-                    try
-                    {
-                        source.AudioMixers = mixersMask;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning($"Failed to set mixers for audio source in group {i}: {ex.Message}");
-                    }
+                    try { source.AudioMixers = mixersMask; }
+                    catch (Exception ex) { Log.Warning($"Failed to set mixers for audio source in group {i}: {ex.Message}"); }
                 }
             }
 
-            // Create one audio encoder per track and bind to corresponding mixer index.
-            // Also capture the authoritative track name list so downstream code (metadata,
-            // clip creation, UI) matches what OBS actually recorded.
             _audioEncoders.Clear();
             var actualAudioTrackNames = new List<string>(trackCount);
             for (int t = 0; t < trackCount; t++)
             {
-                // Track 0 is the full mix, tracks 1+ are individual devices
                 string encoderName = t == 0
                     ? "Full Mix"
                     : (t - 1 < audioDeviceNames.Count ? audioDeviceNames[t - 1] : $"Audio Track {t + 1}");
-
                 actualAudioTrackNames.Add(encoderName);
                 var audioEncoder = AudioEncoder.CreateAac(encoderName, 128, t);
                 _audioEncoders.Add(audioEncoder);
             }
 
-            // Paths for session recordings and buffer, organized by game
             string sanitizedGameName = StorageService.SanitizeGameNameForFolder(name);
             string sessionDir = PathUtils.Combine(Settings.Instance.ContentFolder, FolderNames.Sessions, sanitizedGameName);
             string bufferDir = PathUtils.Combine(Settings.Instance.ContentFolder, FolderNames.Buffers, sanitizedGameName);
             if (!Directory.Exists(sessionDir)) Directory.CreateDirectory(sessionDir);
             if (!Directory.Exists(bufferDir)) Directory.CreateDirectory(bufferDir);
 
-            string? videoOutputPath = null; // only set for session/hybrid session output
+            string? videoOutputPath = null;
 
-            // Configure outputs depending on mode
             if (isReplayBufferMode || isHybridMode)
             {
                 uint bufferTracksMask = (1u << trackCount) - 1u;
-
                 _bufferOutput = new ReplayBuffer("replay_buffer_output", eff.ReplayBufferDuration, eff.ReplayBufferMaxSize);
                 _bufferOutput.SetDirectory(bufferDir);
                 _bufferOutput.SetFilenameFormat("%CCYY-%MM-%DD_%hh-%mm-%ss");
                 _bufferOutput.Update(s => s.Set("extension", "mp4").Set("tracks", (long)bufferTracksMask));
-
                 _bufferOutput.WithVideoEncoder(_videoEncoder);
                 for (int t = 0; t < _audioEncoders.Count; t++)
-                {
                     _bufferOutput.WithAudioEncoder(_audioEncoders[t], track: t);
-                }
-
-                // Connect handler for replay saved
                 _bufferOutput!.Saved += OnReplaySaved;
-
-                // Detect unexpected stops (e.g. disk full mid-recording) so we can notify the user
                 _bufferOutput!.Stopped += OnOutputStopped;
             }
 
             if (isSessionMode || isHybridMode)
             {
                 videoOutputPath = $"{sessionDir}/{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4";
-
                 uint recordTracksMask = (1u << trackCount) - 1u;
-
-                // Try Hybrid MP4 (crash-resilient, chapter markers; OBS 30.2+) and fall back to
-                // the plain ffmpeg muxer if this OBS build doesn't register mp4_output. The
-                // output is already a working ffmpeg_muxer recorder at this point (constructed
-                // that way, with the .mp4 path already set), so a failed SetFormat needs no
-                // further fallback construction - just leave it as-is.
                 bool useHybridMp4 = true;
                 _output = new RecordingOutput("simple_output", videoOutputPath);
-                try
-                {
-                    _output.SetFormat(RecordingFormat.HybridMp4);
-                }
-                catch (NotSupportedException)
-                {
-                    useHybridMp4 = false;
-                }
+                try { _output.SetFormat(RecordingFormat.HybridMp4); }
+                catch (NotSupportedException) { useHybridMp4 = false; }
                 Log.Information($"Using recording output type: {(useHybridMp4 ? "mp4_output" : "ffmpeg_muxer")} (Hybrid MP4: {useHybridMp4})");
                 _output.Update(s => s.Set("tracks", (long)recordTracksMask));
-
                 _output.WithVideoEncoder(_videoEncoder);
                 for (int t = 0; t < _audioEncoders.Count; t++)
-                {
                     _output.WithAudioEncoder(_audioEncoders[t], track: t);
-                }
-
-                // Detect unexpected stops (e.g. disk full mid-recording) so we can notify the user
                 _output.Stopped += OnOutputStopped;
             }
 
-            // Overwrite the file name with the hooked executable name if using game hook
             fileName = _hookedExecutableFileName ?? fileName;
 
             DateTime? startTime = null;
@@ -1336,11 +1322,9 @@ namespace Segra.Backend.Recorder
                     return false;
                 }
 
-                // Set the exact start time for session recording (Full Session has bookmarks)
                 startTime = DateTime.Now;
                 _ = Task.Run(() => PlaySound("start"));
                 hasPlayedStartSound = true;
-
                 Log.Information("Session recording started successfully");
             }
 
@@ -1362,7 +1346,6 @@ namespace Segra.Backend.Recorder
                     _ = Task.Run(() => PlaySound("start"));
                     hasPlayedStartSound = true;
                 }
-
                 Log.Information("Replay buffer started successfully");
             }
 
@@ -1382,9 +1365,7 @@ namespace Segra.Backend.Recorder
             _ = MessageService.SendStateToFrontend("OBS Start recording");
 
             RecordingPreviewService.OnRecordingStarted((uint)eff.FrameRate);
-
             PlatformServices.Tray.SetRecording(true);
-
             StartDiskSpaceMonitor();
 
             Log.Information("Recording started: " + videoOutputPath);
@@ -1638,6 +1619,21 @@ namespace Segra.Backend.Recorder
                 if (_isStoppingOrStopped)
                 {
                     Log.Information("StopRecording called but already stopping or stopped.");
+                    return;
+                }
+
+                // GameOnly mode: if the hook hasn't fired yet, just dispose the scene and return
+                if (_pendingGameOnlyStart != null)
+                {
+                    Log.Information("StopRecording called while waiting for game hook (GameOnly mode); disposing scene.");
+                    _pendingGameOnlyStart = null;
+                    AppState.Instance.PreRecording = null;
+                    _isStoppingOrStopped = true;
+                    StopGameCaptureHookTimeoutTimer();
+                    DisposeOutput();
+                    DisposeSources();
+                    DisposeEncoders();
+                    _activeEffectiveSettings = null;
                     return;
                 }
 
@@ -1927,6 +1923,37 @@ namespace Segra.Backend.Recorder
                 StopGameCaptureHookTimeoutTimer();
 
                 Log.Information($"Game hooked: Title='{title}', Class='{windowClass}', Executable='{executable}'");
+
+                // GameOnly mode: complete the deferred recording start now
+                var pending = _pendingGameOnlyStart;
+                if (pending != null)
+                {
+                    _pendingGameOnlyStart = null;
+                    Log.Information("GameOnly mode: game hooked, completing recording start.");
+                    AppState.Instance.PreRecording = new PreRecording
+                    {
+                        Game = pending.Name,
+                        Status = "Game hooked, starting recording...",
+                        Pid = pending.Pid,
+                        Exe = pending.ExePath
+                    };
+                    _ = MessageService.SendStateToFrontend("Game hooked");
+
+                    // Acquire the stop semaphore to prevent concurrent StopRecording
+                    _stopRecordingSemaphore.Wait();
+                    try
+                    {
+                        CompleteRecordingStart(
+                            pending.Name, pending.ExePath, pending.FileName, pending.Pid,
+                            pending.Settings, pending.IsSessionMode, pending.IsHybridMode,
+                            pending.IsReplayBufferMode);
+                    }
+                    finally
+                    {
+                        _stopRecordingSemaphore.Release();
+                    }
+                    return;
+                }
 
                 // Remove display capture to save resources while game is hooked
                 DisposeDisplaySource();
@@ -2530,8 +2557,18 @@ namespace Segra.Backend.Recorder
             // Check if game capture has hooked
             if (!IsGameCaptureHooked)
             {
-                Log.Warning("Game capture did not hook within 90 seconds. Removing game capture source.");
-                DisposeGameCaptureSource();
+                Log.Warning("Game capture did not hook within 90 seconds. The source will continue retrying.");
+
+                // Soft notification: update status to indicate it's taking longer than expected
+                if (_pendingGameOnlyStart != null && AppState.Instance.PreRecording != null)
+                {
+                    AppState.Instance.PreRecording.Status = "Waiting for game hook...";
+                    _ = MessageService.SendStateToFrontend("Game hook timeout");
+                }
+
+                Task.Run(() => PlaySound("error"));
+                // Don't dispose — let OBS keep trying to hook
+                StopGameCaptureHookTimeoutTimer();
             }
             else
             {

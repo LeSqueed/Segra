@@ -5,6 +5,7 @@ import {
   Settings as SettingsType,
   VideoQualityPreset,
   DisplayCaptureMethod,
+  GameCaptureMode,
 } from '../../Models/types';
 import { sendMessageToBackend } from '../../Utils/MessageUtils';
 import { useAppState } from '../../Context/AppStateContext';
@@ -478,6 +479,20 @@ export default function VideoSettingsSection({
             value={settings.displayCaptureMethod}
             onChange={(val) =>
               updateSettings({ displayCaptureMethod: val as DisplayCaptureMethod })
+            }
+            disabled={isRecording}
+          />
+        </div>
+        <div className="flex flex-col">
+          <span className="font-medium">Game Capture Mode</span>
+          <DropdownSelect
+            items={[
+              { value: 'DisplayFallback', label: 'Display Fallback (record monitor, switch to game when hooked)' },
+              { value: 'GameOnly', label: 'Game Only (wait for game hook, no monitor capture)' },
+            ]}
+            value={settings.gameCaptureMode}
+            onChange={(val) =>
+              updateSettings({ gameCaptureMode: val as GameCaptureMode })
             }
             disabled={isRecording}
           />
