@@ -66,6 +66,7 @@ export enum BookmarkType {
   Goal = 'Goal',
   Assist = 'Assist',
   Death = 'Death',
+  TrainingEvent = 'TrainingEvent',
 }
 
 export const includeInHighlight = (type: BookmarkType): boolean =>
@@ -93,6 +94,7 @@ export interface Bookmark {
   type: BookmarkType;
   subtype?: BookmarkSubtype;
   time: string;
+  trainingEventName?: string;
 }
 
 export interface Recording {
@@ -200,6 +202,7 @@ export interface GameIntegrations {
   runescapeDragonwilds: GameIntegrationSettings;
   warThunder: GameIntegrationSettings;
   gta: GameIntegrationSettings;
+  overwatch?: GameIntegrationSettings;
 }
 
 export type ClipEncoder = 'gpu' | 'cpu';
@@ -238,7 +241,18 @@ export type ClipPreset =
 export type VideoQualityPreset = 'low' | 'standard' | 'high' | 'custom';
 export type ClipQualityPreset = 'low' | 'standard' | 'high' | 'custom';
 
-export type MenuItemId = 'Full Sessions' | 'Replay Buffer' | 'Clips' | 'Highlights' | 'Settings';
+export interface TrainingEventDefinition {
+  id: number;
+  name: string;
+  type: 'Trigger' | 'Exclusion';
+  classId: number;
+  screenRegionX?: number;
+  screenRegionY?: number;
+  screenRegionW?: number;
+  screenRegionH?: number;
+}
+
+export type MenuItemId = 'Full Sessions' | 'Replay Buffer' | 'Clips' | 'Highlights' | 'Settings' | 'Training';
 
 export interface MenuItemPreference {
   id: MenuItemId;
@@ -251,6 +265,7 @@ export const DEFAULT_MENU_ITEMS: MenuItemPreference[] = [
   { id: 'Clips', visible: true },
   { id: 'Highlights', visible: true },
   { id: 'Settings', visible: true },
+  { id: 'Training', visible: true },
 ];
 
 export const MENU_ITEM_CONTENT_TYPES: Record<MenuItemId, ContentType[]> = {
@@ -259,6 +274,7 @@ export const MENU_ITEM_CONTENT_TYPES: Record<MenuItemId, ContentType[]> = {
   Clips: ['Clip'],
   Highlights: ['Highlight'],
   Settings: [],
+  Training: [],
 };
 
 export const menuItemHasContent = (id: MenuItemId, content: Content[]): boolean => {

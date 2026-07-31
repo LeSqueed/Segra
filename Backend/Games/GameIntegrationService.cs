@@ -12,6 +12,9 @@ using Segra.Backend.Games.RunescapeDragonwilds;
 using Segra.Backend.Games.RocketLeague;
 using Segra.Backend.Games.GrandTheftAuto;
 #endif
+#if ENABLE_TRAINING_EVENTS
+using Segra.Backend.Training;
+#endif
 
 namespace Segra.Backend.Games
 {
@@ -33,6 +36,10 @@ namespace Segra.Backend.Games
 
         private static Integration? _gameIntegration;
         private static readonly SemaphoreSlim _lock = new(1, 1);
+#if ENABLE_TRAINING_EVENTS
+        private static TrainingEventDetector? _trainingDetector;
+        private static TrainingEventLifecycle? _trainingLifecycle;
+#endif
 
         public static async Task Start(int? igdbId, string? gameName = null, string? exePath = null)
         {
@@ -76,12 +83,31 @@ namespace Segra.Backend.Games
                     _gameIntegration = new GtaIntegration();
 #endif
 
-                if (_gameIntegration == null)
-                    return;
+                if (_gameIntegration != null)
+                {
+                    _gameIntegration.ExePath = exePath;
+                    Log.Information($"Starting game integration for IGDB ID: {igdbId}, Game: {gameName}");
+                    _ = _gameIntegration.Start();
+                }
 
-                _gameIntegration.ExePath = exePath;
-                Log.Information($"Starting game integration for IGDB ID: {igdbId}, Game: {gameName}");
-                _ = _gameIntegration.Start();
+#if ENABLE_TRAINING_EVENTS
+                if (gameName != null)
+                {
+                    var safeGameId = SanitizeGameId(gameName);
+                    if (TrainingEventService.HasModelForGame(safeGameId))
+                    {
+                        var definitions = TrainingEventService.LoadEventDefinitions(safeGameId);
+                        _trainingLifecycle = new TrainingEventLifecycle(definitions);
+                        _trainingDetector = new TrainingEventDetector();
+                        _trainingDetector.DetectionsAvailable += detections =>
+                        {
+                            _trainingLifecycle?.ProcessDetections(detections, DateTime.Now);
+                        };
+                        _trainingDetector.Start(safeGameId);
+                        Log.Information("Training event detection started for {GameName}", gameName);
+                    }
+                }
+#endif
             }
             finally
             {
@@ -94,19 +120,31 @@ namespace Segra.Backend.Games
             await _lock.WaitAsync();
             try
             {
-                if (_gameIntegration == null)
-                {
-                    return;
-                }
+#if ENABLE_TRAINING_EVENTS
+                _trainingDetector?.Stop();
+                _trainingDetector = null;
+                _trainingLifecycle = null;
+#endif
 
-                Log.Information("Shutting down game integration");
-                await _gameIntegration.Shutdown();
-                _gameIntegration = null;
+                if (_gameIntegration != null)
+                {
+                    Log.Information("Shutting down game integration");
+                    await _gameIntegration.Shutdown();
+                    _gameIntegration = null;
+                }
             }
             finally
             {
                 _lock.Release();
             }
         }
+
+#if ENABLE_TRAINING_EVENTS
+        private static string SanitizeGameId(string gameName)
+        {
+            return string.Concat(gameName.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
+                .Trim().ToLowerInvariant();
+        }
+#endif
     }
 }

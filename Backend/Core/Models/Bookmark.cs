@@ -13,6 +13,7 @@ namespace Segra.Backend.Core.Models
         public TimeSpan Time { get; set; }
         // TODO (os): Set this rating from the ai analysis
         public int? AiRating { get; set; }
+        public string? TrainingEventName { get; set; }
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -22,7 +23,8 @@ namespace Segra.Backend.Core.Models
         [IncludeInHighlight] Kill,
         [IncludeInHighlight] Goal,
         Assist,
-        Death
+        Death,
+        [IncludeInHighlight] TrainingEvent
     }
 
     /// <summary>

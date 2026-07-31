@@ -8,6 +8,7 @@ import Highlights from './Pages/highlights';
 import { SettingsProvider } from './Context/SettingsContext';
 import { AppStateProvider } from './Context/AppStateContext';
 import Video from './Pages/video';
+import Training from './Pages/training';
 import { useSelectedVideo } from './Context/SelectedVideoContext';
 import { useSelectedMenu } from './Context/SelectedMenuContext';
 import { themeChange } from 'theme-change';
@@ -118,6 +119,8 @@ function App() {
         return <Highlights />;
       case 'Settings':
         return <Settings />;
+      case 'Training':
+        return <Training />;
       default:
         return <Sessions />;
     }

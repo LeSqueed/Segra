@@ -25,6 +25,7 @@ import {
   Crown,
   Monitor,
   Play,
+  BrainCircuit,
   LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -43,6 +44,7 @@ const MENU_ICONS: Record<MenuItemId, LucideIcon> = {
   Clips: Clapperboard,
   Highlights: Crown,
   Settings: Settings,
+  Training: BrainCircuit,
 };
 
 export default function Menu({ selectedMenu, onSelectMenu }: MenuProps) {

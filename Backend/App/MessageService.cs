@@ -1,4 +1,5 @@
 using Serilog;
+using System.Globalization;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -14,6 +15,9 @@ using System.Net.WebSockets;
 using Segra.Backend.Recorder;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Windows.Storage;
+#if ENABLE_TRAINING_EVENTS
+using Segra.Backend.Training;
+#endif
 
 namespace Segra.Backend.App
 {
@@ -300,6 +304,52 @@ namespace Segra.Backend.App
                                 }
                             }
                             break;
+#if ENABLE_TRAINING_EVENTS
+                        case "GetTrainingEvents":
+                            root.TryGetProperty("Parameters", out var getEventsParams);
+                            HandleGetTrainingEvents(getEventsParams);
+                            break;
+                        case "SaveTrainingEvent":
+                            root.TryGetProperty("Parameters", out var saveEventParams);
+                            HandleSaveTrainingEvent(saveEventParams);
+                            break;
+                        case "DeleteTrainingEvent":
+                            root.TryGetProperty("Parameters", out var deleteEventParams);
+                            HandleDeleteTrainingEvent(deleteEventParams);
+                            break;
+                        case "AddTrainingSample":
+                            root.TryGetProperty("Parameters", out var addSampleParams);
+                            HandleAddTrainingSample(addSampleParams);
+                            break;
+                        case "ExportTrainingDataset":
+                            root.TryGetProperty("Parameters", out var exportParams);
+                            HandleExportTrainingDataset(exportParams);
+                            break;
+                        case "GetTrainingModelStatus":
+                            root.TryGetProperty("Parameters", out var modelStatusParams);
+                            HandleGetTrainingModelStatus(modelStatusParams);
+                            break;
+                        case "LoadTrainingModel":
+                            root.TryGetProperty("Parameters", out var loadModelParams);
+                            HandleLoadTrainingModel(loadModelParams);
+                            break;
+                        case "TrainModel":
+                            root.TryGetProperty("Parameters", out var trainModelParams);
+                            HandleTrainModel(trainModelParams);
+                            break;
+                        case "DeleteTrainingSample":
+                            root.TryGetProperty("Parameters", out var deleteSampleParams);
+                            HandleDeleteTrainingSample(deleteSampleParams);
+                            break;
+                        case "GetTrainingSampleImage":
+                            root.TryGetProperty("Parameters", out var sampleImageParams);
+                            HandleGetTrainingSampleImage(sampleImageParams);
+                            break;
+                        case "UpdateTrainingSampleLabels":
+                            root.TryGetProperty("Parameters", out var updateLabelsParams);
+                            HandleUpdateTrainingSampleLabels(updateLabelsParams);
+                            break;
+#endif
                         default:
                             Log.Information($"Unknown method: {method}");
                             break;
@@ -827,5 +877,317 @@ namespace Segra.Backend.App
                 await ShowModal("Error", $"Failed to select game executable: {ex.Message}", "error");
             }
         }
+
+#if ENABLE_TRAINING_EVENTS
+        private static async void HandleGetTrainingEvents(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var events = TrainingEventService.LoadEventDefinitions(gameId);
+                var samples = TrainingEventService.GetSamples(gameId);
+                var sampleCounts = events
+                    .ToDictionary(e => e.Id, e => TrainingEventService.GetSampleCountForEvent(gameId, e.Id));
+                var samplesWithImages = samples
+                    .OrderByDescending(s => s.Timestamp)
+                    .Select(s =>
+                {
+                    // Collect all event IDs from the multi-line label file
+                    var labelEventIds = new HashSet<int> { s.EventId };
+                    string? labelText = null;
+                    try
+                    {
+                        if (File.Exists(s.LabelPath))
+                        {
+                            labelText = File.ReadAllText(s.LabelPath).Trim();
+                            foreach (var line in labelText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                var parts = line.Trim().Split(' ');
+                                if (parts.Length >= 5 && int.TryParse(parts[0], out var eid))
+                                    labelEventIds.Add(eid);
+                            }
+                        }
+                    }
+                    catch { }
+
+                    var labelCount = labelText?.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length ?? 1;
+                    var eventNames = labelEventIds
+                        .Select(id => events.FirstOrDefault(e => e.Id == id)?.Name ?? $"Event {id}")
+                        .ToList();
+
+                    return new
+                    {
+                        id = Math.Abs(s.ImagePath.GetHashCode()),
+                        imageData = (string?)null,
+                        eventId = s.EventId,
+                        eventName = eventNames.FirstOrDefault() ?? $"Event {s.EventId}",
+                        eventNames,
+                        labelCount
+                    };
+                }).ToList();
+                var result = new
+                {
+                    events,
+                    samples = samplesWithImages,
+                    sampleCounts
+                };
+                await SendFrontendMessage("TrainingEvents", result);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleGetTrainingEvents failed");
+            }
+        }
+
+        private static async void HandleSaveTrainingEvent(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var evt = JsonSerializer.Deserialize<TrainingEventDefinition>(
+                    parameters.GetProperty("event").GetRawText(), jsonOptions);
+                if (evt != null)
+                {
+                    TrainingEventService.AddEventDefinition(gameId, evt);
+                    await SendFrontendMessage("TrainingEventSaved", new { success = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleSaveTrainingEvent failed");
+                await SendFrontendMessage("TrainingEventSaved",
+                    new { success = false, error = ex.Message });
+            }
+        }
+
+        private static async void HandleDeleteTrainingEvent(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var eventId = parameters.GetProperty("eventId").GetInt32();
+                TrainingEventService.RemoveEventDefinition(gameId, eventId);
+                await SendFrontendMessage("TrainingEventDeleted", new { success = true });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleDeleteTrainingEvent failed");
+            }
+        }
+
+        private static async void HandleAddTrainingSample(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var eventId = parameters.GetProperty("eventId").GetInt32();
+                var imageBase64 = parameters.GetProperty("imageData").GetString() ?? "";
+                var imageBytes = Convert.FromBase64String(imageBase64);
+
+                var sample = new TrainingSample
+                {
+                    EventId = eventId,
+                    BoxX = parameters.TryGetProperty("boxX", out var bx) ? bx.GetSingle() : 0.5f,
+                    BoxY = parameters.TryGetProperty("boxY", out var by) ? by.GetSingle() : 0.5f,
+                    BoxW = parameters.TryGetProperty("boxW", out var bw) ? bw.GetSingle() : 1.0f,
+                    BoxH = parameters.TryGetProperty("boxH", out var bh) ? bh.GetSingle() : 1.0f,
+                    Timestamp = TimeSpan.Zero
+                };
+
+                TrainingEventService.AddSample(gameId, sample, imageBytes);
+                await SendFrontendMessage("TrainingSampleAdded",
+                    new { success = true, sampleCount = TrainingEventService.GetSampleCount(gameId) });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleAddTrainingSample failed");
+                await SendFrontendMessage("TrainingSampleAdded",
+                    new { success = false, error = ex.Message });
+            }
+        }
+
+        private static async void HandleExportTrainingDataset(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                TrainingEventService.ExportDataset(gameId);
+                var gamePath = TrainingEventService.GetGamePath(gameId);
+                await SendFrontendMessage("TrainingDatasetExported",
+                    new { success = true, datasetPath = gamePath, gameId });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleExportTrainingDataset failed");
+                await SendFrontendMessage("TrainingDatasetExported",
+                    new { success = false, error = ex.Message });
+            }
+        }
+
+        private static async void HandleGetTrainingModelStatus(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var hasModel = TrainingEventService.HasModelForGame(gameId);
+                var sampleCount = TrainingEventService.GetSampleCount(gameId);
+                await SendFrontendMessage("TrainingModelStatus",
+                    new { hasModel, sampleCount, gameId });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleGetTrainingModelStatus failed");
+            }
+        }
+
+        private static async void HandleDeleteTrainingSample(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                string? pathToDelete = null;
+                if (parameters.TryGetProperty("imagePath", out var imgPath))
+                    pathToDelete = imgPath.GetString();
+                else if (parameters.TryGetProperty("sampleId", out var sid))
+                {
+                    var sampleId = sid.GetInt32();
+                    var samples = TrainingEventService.GetSamples(gameId);
+                    var sample = samples.FirstOrDefault(s => s.EventId == sampleId);
+                    if (sample != null) pathToDelete = sample.ImagePath;
+                }
+                if (pathToDelete != null)
+                    TrainingEventService.DeleteSample(gameId, pathToDelete);
+                await SendFrontendMessage("TrainingSampleDeleted", new { success = true, gameId });
+                _ = Task.Run(() => HandleGetTrainingEvents(parameters));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleDeleteTrainingSample failed");
+            }
+        }
+
+        private static async void HandleGetTrainingSampleImage(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var imageHashCode = parameters.GetProperty("sampleId").GetInt32();
+                var samples = TrainingEventService.GetSamples(gameId);
+                var sample = samples.FirstOrDefault(s => Math.Abs(s.ImagePath.GetHashCode()) == imageHashCode);
+                if (sample == null || !File.Exists(sample.ImagePath))
+                {
+                    await SendFrontendMessage("TrainingSampleImage", new { success = false, gameId });
+                    return;
+                }
+
+                var imageBase64 = Convert.ToBase64String(File.ReadAllBytes(sample.ImagePath));
+                string? labelContent = null;
+                if (File.Exists(sample.LabelPath))
+                    labelContent = File.ReadAllText(sample.LabelPath).Trim().Replace(',', '.');
+
+                var events = TrainingEventService.LoadEventDefinitions(gameId);
+                var ev = events.FirstOrDefault(e => e.Id == sample.EventId);
+
+                await SendFrontendMessage("TrainingSampleImage", new
+                {
+                    success = true,
+                    gameId,
+                    sampleId = imageHashCode,
+                    imageData = "data:image/png;base64," + imageBase64,
+                    label = labelContent,
+                    eventName = ev?.Name ?? $"Event {sample.EventId}",
+                    eventId = sample.EventId
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleGetTrainingSampleImage failed");
+                await SendFrontendMessage("TrainingSampleImage", new { success = false, error = ex.Message });
+            }
+        }
+
+        private static async void HandleUpdateTrainingSampleLabels(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var imageHashCode = parameters.GetProperty("sampleId").GetInt32();
+                var labelsArray = parameters.GetProperty("labels").EnumerateArray().ToList();
+
+                var samples = TrainingEventService.GetSamples(gameId);
+                var sample = samples.FirstOrDefault(s => Math.Abs(s.ImagePath.GetHashCode()) == imageHashCode);
+                if (sample == null)
+                {
+                    await SendFrontendMessage("TrainingSampleLabelsUpdated", new { success = false, gameId, error = "Sample not found" });
+                    return;
+                }
+
+                var inv = CultureInfo.InvariantCulture;
+                var lines = new List<string>();
+                foreach (var lbl in labelsArray)
+                {
+                    var eventId = lbl.GetProperty("eventId").GetInt32();
+                    var bx = lbl.GetProperty("boxX").GetSingle();
+                    var by = lbl.GetProperty("boxY").GetSingle();
+                    var bw = lbl.GetProperty("boxW").GetSingle();
+                    var bh = lbl.GetProperty("boxH").GetSingle();
+                    lines.Add($"{eventId} {bx.ToString(inv)} {by.ToString(inv)} {bw.ToString(inv)} {bh.ToString(inv)}");
+                }
+
+                File.WriteAllLines(sample.LabelPath, lines);
+                await SendFrontendMessage("TrainingSampleLabelsUpdated", new { success = true, gameId });
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleUpdateTrainingSampleLabels failed");
+                await SendFrontendMessage("TrainingSampleLabelsUpdated", new { success = false, error = ex.Message });
+            }
+        }
+
+        private static async void HandleLoadTrainingModel(JsonElement parameters)
+        {
+            try
+            {
+                var gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                var success = TrainingEventService.LoadModel(gameId) != null;
+                await SendFrontendMessage("TrainingModelLoaded",
+                    new { success, gameId });
+                if (success)
+                    Log.Information("Training model loaded for {GameId}", gameId);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleLoadTrainingModel failed");
+                await SendFrontendMessage("TrainingModelLoaded",
+                    new { success = false, gameId = "", error = ex.Message });
+            }
+        }
+
+        private static async void HandleTrainModel(JsonElement parameters)
+        {
+            var gameId = "";
+            try
+            {
+                gameId = parameters.GetProperty("gameId").GetString() ?? "";
+                await MessageService.SendFrontendMessage("TrainingProgress",
+                    new { gameId, status = "starting", message = "Starting training..." });
+
+                var gamePath = TrainingEventService.GetGamePath(gameId);
+                var datasetDir = Path.Combine(gamePath, "dataset");
+
+                await MessageService.SendFrontendMessage("TrainingProgress",
+                    new { gameId, status = "starting", message = "Exporting dataset..." });
+                TrainingEventService.ExportDataset(gameId);
+
+                _ = Task.Run(() => TrainingRunner.RunTraining(gameId, datasetDir));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "HandleTrainModel failed");
+                await SendFrontendMessage("TrainingProgress",
+                    new { gameId, status = "error", message = ex.Message });
+            }
+        }
+#endif
     }
 }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useDrag, useDrop } from 'react-dnd';
 import {
   AlertTriangle,
+  BrainCircuit,
   Clapperboard,
   Crown,
   Eye,
@@ -35,6 +36,7 @@ const MENU_ICONS: Record<MenuItemId, LucideIcon> = {
   Clips: Clapperboard,
   Highlights: Crown,
   Settings: SettingsIcon,
+  Training: BrainCircuit,
 };
 
 interface RowProps {

@@ -38,7 +38,7 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
     <OutputType>WinExe</OutputType>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+    <DefineConstants>$(DefineConstants);WINDOWS;ENABLE_TRAINING_EVENTS</DefineConstants>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -50,7 +50,7 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <OutputType>Exe</OutputType>
     <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
-    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+    <DefineConstants>$(DefineConstants);LINUX;ENABLE_TRAINING_EVENTS</DefineConstants>
     <!-- System.Drawing.Common compiles cross-platform (throws only at runtime off-Windows, which
          the existing try/catch call sites handle), so Resources.Designer.cs and IconUtils build
          unchanged. CA1416 (platform-compat) warnings for those unreachable paths are expected. -->
@@ -67,6 +67,7 @@
     <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
     <PackageReference Include="Velopack" Version="1.2.0" />
     <PackageReference Include="ObsKit.NET" Version="1.5.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
   </ItemGroup>
 
   <!-- Windows-only packages (NAudio/WASAPI, WMI, DirectX) -->
@@ -190,7 +191,6 @@
       <PackagedFrontendFiles Include="Resources\wwwroot\**\*" Exclude="Resources\wwwroot\.gitkeep" />
       <FrontendDistFiles Include="Frontend\dist\**\*" />
     </ItemGroup>
-    <Delete Files="@(PackagedFrontendFiles)" />
     <Copy
       SourceFiles="@(FrontendDistFiles)"
       DestinationFiles="@(FrontendDistFiles->'Resources\wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" />

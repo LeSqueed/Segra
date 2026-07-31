@@ -373,3 +373,13 @@ MigrationBackup/
 
 # OBS Linux bundle is a throwaway build artifact (Flatpak regenerates + bundles it)
 Obs/*linux.tar.gz
+
+# Training/dev artifacts (not part of runtime)
+runs/
+data/training/*/samples/
+data/training/*/dataset/
+*.pt
+yolo11n.pt
+debug_*.png
+debug_*.jpg
+.venv/

@@ -86,6 +86,15 @@ const GAME_INTEGRATIONS: GameIntegration[] = [
     bookmarks: ['Deaths'],
     backgroundImage: 'https://segra.tv/api/games/cover/ar3en0',
   },
+  {
+    id: 'overwatch',
+    name: 'Overwatch (AI)',
+    settingsKey: 'overwatch',
+    bookmarks: ['Elimination', 'Assist'],
+    backgroundImage: '',
+    coverOpacity: 25,
+    isBeta: true,
+  },
 ];
 
 const getBookmarkBadgeClass = (bookmark: string): string => {
@@ -176,7 +185,7 @@ export default function GameIntegrationsSection() {
       gameIntegrations: {
         ...settings.gameIntegrations,
         [settingsKey]: {
-          ...settings.gameIntegrations[settingsKey],
+          ...(settings.gameIntegrations[settingsKey] ?? { enabled: true }),
           enabled,
         },
       },
@@ -196,7 +205,7 @@ export default function GameIntegrationsSection() {
           <GameIntegrationCard
             key={integration.id}
             integration={integration}
-            enabled={settings.gameIntegrations[integration.settingsKey].enabled}
+            enabled={settings.gameIntegrations[integration.settingsKey]?.enabled ?? false}
             showBackground={settings.showGameBackground}
             isRecording={appState.recording != null || appState.preRecording != null}
             onToggle={(enabled) => handleToggle(integration.settingsKey, enabled)}

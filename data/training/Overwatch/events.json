@@ -1,0 +1,80 @@
+[
+  {
+    "id": 1510541668,
+    "name": "Elimination",
+    "type": "Trigger",
+    "classId": 0,
+    "cooldownMs": 1000,
+    "preTimeMs": 3000,
+    "postTimeMs": 2000,
+    "screenRegionX": 0.2611,
+    "screenRegionY": 0.599,
+    "screenRegionW": 0.5222,
+    "screenRegionH": 0.2272
+  },
+  {
+    "id": 1510682244,
+    "name": "Death Spectating",
+    "type": "Exclusion",
+    "classId": 0,
+    "cooldownMs": 0,
+    "preTimeMs": 0,
+    "postTimeMs": 0,
+    "screenRegionX": 0.1028,
+    "screenRegionY": 0.0336,
+    "screenRegionW": 0.1236,
+    "screenRegionH": 0.0469
+  },
+  {
+    "id": 1510769621,
+    "name": "Turret",
+    "type": "Exclusion",
+    "classId": 0,
+    "cooldownMs": 0,
+    "preTimeMs": 0,
+    "postTimeMs": 0,
+    "screenRegionX": 0.3069,
+    "screenRegionY": 0.5225,
+    "screenRegionW": 0.4889,
+    "screenRegionH": 0.3037
+  },
+  {
+    "id": 1510853791,
+    "name": "Kill Cam",
+    "type": "Exclusion",
+    "classId": 0,
+    "cooldownMs": 0,
+    "preTimeMs": 0,
+    "postTimeMs": 0,
+    "screenRegionX": 0.4681,
+    "screenRegionY": 0.8706,
+    "screenRegionW": 0.0708,
+    "screenRegionH": 0.0543
+  },
+  {
+    "id": 1510890928,
+    "name": "Assist",
+    "type": "Trigger",
+    "classId": 0,
+    "cooldownMs": 1000,
+    "preTimeMs": 3000,
+    "postTimeMs": 2000,
+    "screenRegionX": 0.2583,
+    "screenRegionY": 0.5101,
+    "screenRegionW": 0.5,
+    "screenRegionH": 0.2938
+  },
+  {
+    "id": 1511960590,
+    "name": "POTG",
+    "type": "Exclusion",
+    "classId": 0,
+    "cooldownMs": 0,
+    "preTimeMs": 0,
+    "postTimeMs": 0,
+    "screenRegionX": 0.0097,
+    "screenRegionY": 0.0114,
+    "screenRegionW": 0.1514,
+    "screenRegionH": 0.0568
+  }
+]

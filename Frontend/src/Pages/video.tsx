@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { Content, BookmarkType, Segment, Bookmark } from '../Models/types';
+import { Content, BookmarkType, Segment, Bookmark, TrainingEventDefinition } from '../Models/types';
 import { sendMessageToBackend } from '../Utils/MessageUtils';
 import { useSettings, useSettingsUpdater } from '../Context/SettingsContext';
 import { useAppState } from '../Context/AppStateContext';
@@ -35,6 +35,7 @@ import {
   Minimize,
   ArrowLeft,
   Skull,
+  Crosshair,
   Plus,
   Minus,
   ZoomIn,
@@ -42,8 +43,10 @@ import {
   Headphones,
   Copy,
   Check,
+  BrainCircuit,
 } from 'lucide-react';
 import SegmentCard from '../Components/SegmentCard';
+import TrainingOverlay from '../Components/TrainingOverlay';
 import { useAudioTracks } from '../Hooks/useAudioTracks';
 import { AnimatePresence, motion } from 'framer-motion';
 import Button from '../Components/Button';
@@ -112,6 +115,7 @@ const DEFAULT_ICON_MAPPING: Record<BookmarkType, LucideIcon> = {
   Goal: SoccerBall,
   Assist: HeartHandshake,
   Death: Skull,
+  TrainingEvent: Crosshair,
 };
 
 const GAME_ICON_OVERRIDES: Record<number, Partial<Record<BookmarkType, LucideIcon>>> = {
@@ -241,12 +245,19 @@ export default function VideoComponent({ video }: { video: Content }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [trainingEvents, setTrainingEvents] = useState<TrainingEventDefinition[]>([]);
 
   // Scale and pan state for zooming into the video element itself
   const [videoScale, setVideoScale] = useState(1);
   const [videoTranslate, setVideoTranslate] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [trainingMode, setTrainingMode] = useState(false);
+  useEffect(() => {
+    if (trainingMode && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+  }, [trainingMode]);
   const videoPanStartRef = useRef<{ x: number; y: number } | null>(null);
   const panMovedRef = useRef(false);
   const videoScaleRef = useRef<number>(videoScale);
@@ -629,6 +640,11 @@ export default function VideoComponent({ video }: { video: Content }) {
     };
   }, [volume, isMuted, isFullscreen, audioTracks.isMultiTrack]);
 
+  // Pause video when leaving the page
+  useEffect(() => {
+    return () => videoRef.current?.pause();
+  }, []);
+
   // Per-segment audio override state, kept in refs for the rAF loop below.
   // `segmentsDirtyRef` is separate from the id ref because `null` is already
   // the valid "no active segment" id, so id comparison alone can't detect a
@@ -915,6 +931,7 @@ export default function VideoComponent({ video }: { video: Content }) {
 
   // Video control functions
   const handlePlayPause = () => {
+    if (trainingMode) return;
     if (videoRef.current) {
       if (videoRef.current.paused) {
         videoRef.current.play();
@@ -1677,6 +1694,34 @@ export default function VideoComponent({ video }: { video: Content }) {
     localStorage.setItem('segra-playbackRate', r.toString());
   };
 
+  const refreshTrainingData = useCallback(() => {
+    if (video.game) {
+      sendMessageToBackend('GetTrainingEvents', { gameId: video.game });
+    }
+  }, [video.game]);
+
+  useEffect(() => {
+    if (__ENABLE_TRAINING_EVENTS__ && video.game) {
+      refreshTrainingData();
+    }
+  }, [video.game, refreshTrainingData]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const data = (e as CustomEvent).detail;
+      if (data.method === 'TrainingEvents') {
+        setTrainingEvents(data.content.events || []);
+      } else if (data.method === 'TrainingSampleAdded' || data.method === 'TrainingEventSaved') {
+        if (data.content.success) {
+          refreshTrainingData();
+        }
+      }
+    };
+
+    window.addEventListener('websocket-message', handler as EventListener);
+    return () => window.removeEventListener('websocket-message', handler as EventListener);
+  }, [refreshTrainingData]);
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex w-full h-full overflow-hidden bg-base-200" ref={containerRef}>
@@ -1727,7 +1772,29 @@ export default function VideoComponent({ video }: { video: Content }) {
                   cursor: videoScale > 1 && isPanning ? 'grabbing' : undefined,
                 }}
               />
+              {__ENABLE_TRAINING_EVENTS__ && trainingMode && (
+                <TrainingOverlay
+                  videoRef={videoRef}
+                  isPaused={!isPlaying}
+                  enabled={trainingMode}
+                  events={trainingEvents}
+                  gameId={video.game}
+                  onSampleAdded={refreshTrainingData}
+                />
+              )}
             </div>
+
+            {__ENABLE_TRAINING_EVENTS__ && trainingMode && (
+              <div className="absolute top-0 left-0 right-0 z-20 bg-accent/90 text-accent-content text-xs font-semibold px-3 py-1 flex items-center justify-between">
+                <span>Training Mode — Paused. Drag to draw boxes on UI elements.</span>
+                <button
+                  className="btn btn-ghost btn-xs text-accent-content"
+                  onClick={() => setTrainingMode(false)}
+                >
+                  Exit
+                </button>
+              </div>
+            )}
 
             <div
               className={`absolute left-0 right-0 bottom-0 bg-black/70 pb-2 flex flex-col gap-2 transition-transform duration-300 select-none ${isFullscreen ? '' : 'rounded-b-lg'} ${controlsVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'}`}
@@ -1741,6 +1808,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                 step={0.01}
                 value={Math.min(currentTime, duration)}
                 onChange={(e) => {
+                  if (trainingMode) return;
                   const t = parseFloat(e.target.value);
                   setCurrentTime(t);
                   if (videoRef.current) videoRef.current.currentTime = t;
@@ -1930,6 +1998,16 @@ export default function VideoComponent({ video }: { video: Content }) {
                       </div>
                     </div>
                   </div>
+
+                  {__ENABLE_TRAINING_EVENTS__ && (
+                    <button
+                      onClick={() => setTrainingMode((prev) => !prev)}
+                      className={`flex items-center justify-center p-1 cursor-pointer transition-colors border rounded-md hover:text-accent hover:bg-accent/20 ${trainingMode ? 'text-accent bg-accent/20 border-accent' : 'text-white border-base-400'}`}
+                      aria-label="Toggle training mode"
+                    >
+                      <BrainCircuit className="w-4 h-4" />
+                    </button>
+                  )}
 
                   <button
                     onClick={toggleFullscreen}

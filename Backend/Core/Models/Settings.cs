@@ -16,7 +16,10 @@ namespace Segra.Backend.Core.Models
             "Replay Buffer",
             "Clips",
             "Highlights",
-            "Settings"
+            "Settings",
+#if ENABLE_TRAINING_EVENTS
+            "Training",
+#endif
         };
 
         private static Settings _instance = new Settings();
@@ -1503,5 +1506,10 @@ namespace Segra.Backend.Core.Models
 
         [JsonPropertyName("gta")]
         public GameIntegrationSettings Gta { get; set; } = new GameIntegrationSettings(true);
+
+#if ENABLE_TRAINING_EVENTS
+        [JsonPropertyName("overwatch")]
+        public GameIntegrationSettings Overwatch { get; set; } = new GameIntegrationSettings(true);
+#endif
     }
 }
