@@ -1,4 +1,4 @@
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
 
 using Segra.Backend.Core;
 using Segra.Backend.Core.Models;
@@ -8,7 +8,7 @@ namespace Segra.Backend.Training;
 
 internal class ActiveEvent
 {
-    public TrainingEventDefinition Definition { get; init; } = null!;
+    public Segra.Backend.Detection.EventDefinition Definition { get; init; } = null!;
     public DateTime FirstSeen { get; set; }
     public DateTime LastSeen { get; set; }
     public bool BookmarkCreated { get; set; }
@@ -17,12 +17,12 @@ internal class ActiveEvent
 public class TrainingEventLifecycle
 {
     private readonly Dictionary<int, ActiveEvent> _activeTriggers = new();
-    private readonly Dictionary<int, TrainingEventDefinition> _eventMap;
+    private readonly Dictionary<int, Segra.Backend.Detection.EventDefinition> _eventMap;
     private readonly HashSet<int> _exclusionEventIds;
     private DateTime? _exclusionActiveSince;
     private int? _exclusionEventId;
 
-    public TrainingEventLifecycle(List<TrainingEventDefinition> definitions)
+    public TrainingEventLifecycle(List<Segra.Backend.Detection.EventDefinition> definitions)
     {
         var sorted = definitions.OrderBy(d => d.Id).ToList();
         _eventMap = sorted
@@ -30,12 +30,12 @@ public class TrainingEventLifecycle
             .ToDictionary(x => x.i, x => x.d);
         _exclusionEventIds = sorted
             .Select((d, i) => (d, i))
-            .Where(x => x.d.Type == EventType.Exclusion)
+            .Where(x => x.d.Type == Segra.Backend.Detection.EventType.Exclusion)
             .Select(x => x.i)
             .ToHashSet();
     }
 
-    public void ProcessDetections(List<TrainingEventDetectionResult> detections, DateTime now)
+    public void ProcessDetections(List<Segra.Backend.Detection.DetectionResult> detections, DateTime now)
     {
         var detectedClassIds = detections.Select(d => d.ClassId).ToHashSet();
         var detectedExclusions = detectedClassIds.Intersect(_exclusionEventIds).ToHashSet();
@@ -115,14 +115,15 @@ public class TrainingEventLifecycle
 
     private static void CreateBookmark(ActiveEvent evt)
     {
+        if (evt.Definition.BookmarkType == null) return;
+
         var recording = AppState.Instance.Recording;
         if (recording == null) return;
 
         var bookmarkTime = evt.FirstSeen - recording.StartTime;
         var bookmark = new Bookmark
         {
-            Type = BookmarkType.TrainingEvent,
-            TrainingEventName = evt.Definition.Name,
+            Type = evt.Definition.BookmarkType.Value,
             Time = bookmarkTime
         };
 

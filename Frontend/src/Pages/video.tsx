@@ -35,7 +35,6 @@ import {
   Minimize,
   ArrowLeft,
   Skull,
-  Crosshair,
   Plus,
   Minus,
   ZoomIn,
@@ -115,7 +114,6 @@ const DEFAULT_ICON_MAPPING: Record<BookmarkType, LucideIcon> = {
   Goal: SoccerBall,
   Assist: HeartHandshake,
   Death: Skull,
-  TrainingEvent: Crosshair,
 };
 
 const GAME_ICON_OVERRIDES: Record<number, Partial<Record<BookmarkType, LucideIcon>>> = {

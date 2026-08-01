@@ -1,9 +1,10 @@
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
 
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
+using Segra.Backend.Detection;
 using Serilog;
 
 namespace Segra.Backend.Training;
@@ -13,7 +14,7 @@ public static class TrainingEventService
     private static readonly string BasePath =
         Path.Combine(AppContext.BaseDirectory, "data", "training");
 
-    private static readonly ConcurrentDictionary<string, List<TrainingEventDefinition>> _definitions = new();
+    private static readonly ConcurrentDictionary<string, List<EventDefinition>> _definitions = new();
     private static readonly ConcurrentDictionary<string, List<TrainingSample>> _samples = new();
     private static readonly ConcurrentDictionary<string, InferenceSession?> _models = new();
 
@@ -26,7 +27,7 @@ public static class TrainingEventService
 
     // --- Event Definitions ---
 
-    public static List<TrainingEventDefinition> LoadEventDefinitions(string gameId)
+    public static List<EventDefinition> LoadEventDefinitions(string gameId)
     {
         if (_definitions.TryGetValue(gameId, out var cached))
             return cached;
@@ -34,17 +35,17 @@ public static class TrainingEventService
         var path = Path.Combine(GetGamePath(gameId), "events.json");
         if (!File.Exists(path))
         {
-            _definitions[gameId] = new List<TrainingEventDefinition>();
+            _definitions[gameId] = new List<EventDefinition>();
             return _definitions[gameId];
         }
 
         var json = File.ReadAllText(path);
-        var events = JsonSerializer.Deserialize<List<TrainingEventDefinition>>(json, _jsonOptions) ?? new List<TrainingEventDefinition>();
+        var events = JsonSerializer.Deserialize<List<EventDefinition>>(json, _jsonOptions) ?? new List<EventDefinition>();
         _definitions[gameId] = events;
         return events;
     }
 
-    public static void SaveEventDefinitions(string gameId, List<TrainingEventDefinition> events)
+    public static void SaveEventDefinitions(string gameId, List<EventDefinition> events)
     {
         var dir = GetGamePath(gameId);
         Directory.CreateDirectory(dir);
@@ -54,7 +55,7 @@ public static class TrainingEventService
         _definitions[gameId] = events;
     }
 
-    public static void AddEventDefinition(string gameId, TrainingEventDefinition evt)
+    public static void AddEventDefinition(string gameId, EventDefinition evt)
     {
         var events = LoadEventDefinitions(gameId);
         var existing = events.FindIndex(e => e.Id == evt.Id);

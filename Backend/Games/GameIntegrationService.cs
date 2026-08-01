@@ -12,8 +12,8 @@ using Segra.Backend.Games.RunescapeDragonwilds;
 using Segra.Backend.Games.RocketLeague;
 using Segra.Backend.Games.GrandTheftAuto;
 #endif
-#if ENABLE_TRAINING_EVENTS
-using Segra.Backend.Training;
+#if ENABLE_ML_DETECTION
+using Segra.Backend.Detection;
 #endif
 
 namespace Segra.Backend.Games
@@ -36,9 +36,10 @@ namespace Segra.Backend.Games
 
         private static Integration? _gameIntegration;
         private static readonly SemaphoreSlim _lock = new(1, 1);
-#if ENABLE_TRAINING_EVENTS
-        private static TrainingEventDetector? _trainingDetector;
-        private static TrainingEventLifecycle? _trainingLifecycle;
+#if ENABLE_ML_DETECTION
+        private static VisualEventDetector? _visualDetector;
+        private static CooldownTracker? _cooldownTracker;
+        private static List<EventDefinition>? _eventDefinitions;
 #endif
 
         public static async Task Start(int? igdbId, string? gameName = null, string? exePath = null)
@@ -90,21 +91,30 @@ namespace Segra.Backend.Games
                     _ = _gameIntegration.Start();
                 }
 
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_ML_DETECTION
                 if (gameName != null)
                 {
                     var safeGameId = SanitizeGameId(gameName);
-                    if (TrainingEventService.HasModelForGame(safeGameId))
+                    if (ModelService.HasModelForGame(safeGameId))
                     {
-                        var definitions = TrainingEventService.LoadEventDefinitions(safeGameId);
-                        _trainingLifecycle = new TrainingEventLifecycle(definitions);
-                        _trainingDetector = new TrainingEventDetector();
-                        _trainingDetector.DetectionsAvailable += detections =>
+                        _eventDefinitions = ModelService.LoadEventDefinitions(safeGameId);
+                        _cooldownTracker = new CooldownTracker();
+                        _visualDetector = new VisualEventDetector();
+                        _visualDetector.DetectionsAvailable += detections =>
                         {
-                            _trainingLifecycle?.ProcessDetections(detections, DateTime.Now);
+                            var defs = _eventDefinitions;
+                            if (defs == null) return;
+                            foreach (var detection in detections)
+                            {
+                                var def = defs.FirstOrDefault(d => d.ClassId == detection.ClassId);
+                                if (def == null || def.Type == EventType.Exclusion) continue;
+                                if (!_cooldownTracker.CanDetect(detection.ClassId, 1000, DateTime.Now)) continue;
+                                _cooldownTracker.Record(detection.ClassId, DateTime.Now);
+                                _cooldownTracker.CreateBookmark(detection, def, DateTime.Now);
+                            }
                         };
-                        _trainingDetector.Start(safeGameId);
-                        Log.Information("Training event detection started for {GameName}", gameName);
+                        _visualDetector.Start(safeGameId);
+                        Log.Information("ML detection started for {GameName}", gameName);
                     }
                 }
 #endif
@@ -120,10 +130,11 @@ namespace Segra.Backend.Games
             await _lock.WaitAsync();
             try
             {
-#if ENABLE_TRAINING_EVENTS
-                _trainingDetector?.Stop();
-                _trainingDetector = null;
-                _trainingLifecycle = null;
+#if ENABLE_ML_DETECTION
+                _visualDetector?.Stop();
+                _visualDetector = null;
+                _cooldownTracker = null;
+                _eventDefinitions = null;
 #endif
 
                 if (_gameIntegration != null)
@@ -139,7 +150,7 @@ namespace Segra.Backend.Games
             }
         }
 
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_ML_DETECTION
         private static string SanitizeGameId(string gameName)
         {
             return string.Concat(gameName.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))

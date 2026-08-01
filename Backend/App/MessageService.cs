@@ -15,7 +15,8 @@ using System.Net.WebSockets;
 using Segra.Backend.Recorder;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Windows.Storage;
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
+using Segra.Backend.Detection;
 using Segra.Backend.Training;
 #endif
 
@@ -304,7 +305,7 @@ namespace Segra.Backend.App
                                 }
                             }
                             break;
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
                         case "GetTrainingEvents":
                             root.TryGetProperty("Parameters", out var getEventsParams);
                             HandleGetTrainingEvents(getEventsParams);
@@ -317,14 +318,6 @@ namespace Segra.Backend.App
                             root.TryGetProperty("Parameters", out var deleteEventParams);
                             HandleDeleteTrainingEvent(deleteEventParams);
                             break;
-                        case "AddTrainingSample":
-                            root.TryGetProperty("Parameters", out var addSampleParams);
-                            HandleAddTrainingSample(addSampleParams);
-                            break;
-                        case "ExportTrainingDataset":
-                            root.TryGetProperty("Parameters", out var exportParams);
-                            HandleExportTrainingDataset(exportParams);
-                            break;
                         case "GetTrainingModelStatus":
                             root.TryGetProperty("Parameters", out var modelStatusParams);
                             HandleGetTrainingModelStatus(modelStatusParams);
@@ -332,6 +325,14 @@ namespace Segra.Backend.App
                         case "LoadTrainingModel":
                             root.TryGetProperty("Parameters", out var loadModelParams);
                             HandleLoadTrainingModel(loadModelParams);
+                            break;
+                        case "AddTrainingSample":
+                            root.TryGetProperty("Parameters", out var addSampleParams);
+                            HandleAddTrainingSample(addSampleParams);
+                            break;
+                        case "ExportTrainingDataset":
+                            root.TryGetProperty("Parameters", out var exportParams);
+                            HandleExportTrainingDataset(exportParams);
                             break;
                         case "TrainModel":
                             root.TryGetProperty("Parameters", out var trainModelParams);
@@ -878,7 +879,7 @@ namespace Segra.Backend.App
             }
         }
 
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
         private static async void HandleGetTrainingEvents(JsonElement parameters)
         {
             try
@@ -944,7 +945,7 @@ namespace Segra.Backend.App
             try
             {
                 var gameId = parameters.GetProperty("gameId").GetString() ?? "";
-                var evt = JsonSerializer.Deserialize<TrainingEventDefinition>(
+                var evt = JsonSerializer.Deserialize<EventDefinition>(
                     parameters.GetProperty("event").GetRawText(), jsonOptions);
                 if (evt != null)
                 {
@@ -975,6 +976,8 @@ namespace Segra.Backend.App
             }
         }
 
+#endif
+#if ENABLE_TRAINING
         private static async void HandleAddTrainingSample(JsonElement parameters)
         {
             try
@@ -1024,6 +1027,8 @@ namespace Segra.Backend.App
             }
         }
 
+#endif
+#if ENABLE_TRAINING
         private static async void HandleGetTrainingModelStatus(JsonElement parameters)
         {
             try
@@ -1040,6 +1045,8 @@ namespace Segra.Backend.App
             }
         }
 
+#endif
+#if ENABLE_TRAINING
         private static async void HandleDeleteTrainingSample(JsonElement parameters)
         {
             try
@@ -1144,16 +1151,18 @@ namespace Segra.Backend.App
             }
         }
 
+#endif
+#if ENABLE_TRAINING
         private static async void HandleLoadTrainingModel(JsonElement parameters)
         {
             try
             {
                 var gameId = parameters.GetProperty("gameId").GetString() ?? "";
-                var success = TrainingEventService.LoadModel(gameId) != null;
+                var success = TrainingEventService.HasModelForGame(gameId);
                 await SendFrontendMessage("TrainingModelLoaded",
                     new { success, gameId });
                 if (success)
-                    Log.Information("Training model loaded for {GameId}", gameId);
+                    Log.Information("ML model loaded for {GameId}", gameId);
             }
             catch (Exception ex)
             {

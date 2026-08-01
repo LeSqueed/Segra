@@ -269,7 +269,7 @@ namespace Segra.Backend.App
                     Directory.CreateDirectory(Settings.Instance.ContentFolder);
                 }
 
-#if ENABLE_TRAINING_EVENTS
+#if ENABLE_TRAINING
                 Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "data", "training"));
 #endif
 

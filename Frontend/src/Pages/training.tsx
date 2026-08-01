@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sendMessageToBackend } from '../Utils/MessageUtils';
 import { useAppState } from '../Context/AppStateContext';
-import type { TrainingEventDefinition } from '../Models/types';
+import { BookmarkType, type TrainingEventDefinition } from '../Models/types';
 
 interface TrainingSample {
   id: number;
@@ -53,6 +53,7 @@ export default function TrainingPage() {
   const [eventForm, setEventForm] = useState({
     name: '',
     type: 'Trigger' as 'Trigger' | 'Exclusion',
+    bookmarkType: undefined as BookmarkType | undefined,
   });
 
   const [viewSample, setViewSample] = useState<{ sampleId: number; imageData: string; label: string; eventName: string } | null>(null);
@@ -160,7 +161,7 @@ export default function TrainingPage() {
 
 const openAddEvent = () => {
     setEditingEvent(null);
-    setEventForm({ name: '', type: 'Trigger' });
+    setEventForm({ name: '', type: 'Trigger', bookmarkType: BookmarkType.Kill });
     setShowEventModal(true);
 };
 
@@ -169,6 +170,7 @@ const openAddEvent = () => {
     setEventForm({
       name: ev.name,
       type: ev.type,
+      bookmarkType: ev.bookmarkType,
     });
     setShowEventModal(true);
   };
@@ -180,6 +182,7 @@ const openAddEvent = () => {
       name: eventForm.name,
       type: eventForm.type,
       classId: editingEvent?.classId ?? events.length + 1,
+      bookmarkType: eventForm.bookmarkType,
       screenRegionX: editingEvent?.screenRegionX,
       screenRegionY: editingEvent?.screenRegionY,
       screenRegionW: editingEvent?.screenRegionW,
@@ -537,10 +540,34 @@ const openAddEvent = () => {
                 <select
                   className="select select-bordered"
                   value={eventForm.type}
-                  onChange={(e) => setEventForm({ ...eventForm, type: e.target.value as 'Trigger' | 'Exclusion' })}
+                  onChange={(e) => {
+                    const newType = e.target.value as 'Trigger' | 'Exclusion';
+                    setEventForm({
+                      ...eventForm,
+                      type: newType,
+                      bookmarkType: newType === 'Exclusion' ? undefined : eventForm.bookmarkType ?? BookmarkType.Kill,
+                    });
+                  }}
                 >
                   <option value="Trigger">Trigger</option>
                   <option value="Exclusion">Exclusion</option>
+                </select>
+              </div>
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Bookmark Type</span>
+                </label>
+                <select
+                  className="select select-bordered"
+                  value={eventForm.bookmarkType ?? ''}
+                  disabled={eventForm.type === 'Exclusion'}
+                  onChange={(e) => setEventForm({ ...eventForm, bookmarkType: (e.target.value || undefined) as BookmarkType | undefined })}
+                >
+                  <option value="">None</option>
+                  <option value="Kill">Kill</option>
+                  <option value="Goal">Goal</option>
+                  <option value="Assist">Assist</option>
+                  <option value="Death">Death</option>
                 </select>
               </div>
 
@@ -830,7 +857,7 @@ const openAddEvent = () => {
             <p className="text-xs opacity-60 mb-4">
               Draw where on screen this element typically appears. During live detection, only detections within this region will be considered.
             </p>
-            <div className="flex gap-2 mb-2">
+            <div className="flex gap-2 mb-2 flex-wrap">
               <button className="btn btn-ghost btn-xs" onClick={() => fileInputRef.current?.click()}>
                 Load Screenshot
               </button>
@@ -851,6 +878,22 @@ const openAddEvent = () => {
                   };
                   reader.readAsDataURL(file);
                 }} />
+              {events.filter(e => e.screenRegionW).length > 0 && (
+                <div className="dropdown dropdown-bottom">
+                  <button tabIndex={0} className="btn btn-ghost btn-xs">
+                    Copy From Existing
+                  </button>
+                  <ul tabIndex={0} className="dropdown-content z-10 menu p-2 shadow bg-base-200 rounded-box w-52">
+                    {events.filter(e => e.screenRegionW && e.id !== regionEvent?.id).map(e => (
+                      <li key={e.id}>
+                        <button onClick={() => setRegionBox({ x: e.screenRegionX!, y: e.screenRegionY!, w: e.screenRegionW!, h: e.screenRegionH! })}>
+                          {e.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
             <div className="bg-base-300 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
               <canvas

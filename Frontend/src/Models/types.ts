@@ -66,7 +66,6 @@ export enum BookmarkType {
   Goal = 'Goal',
   Assist = 'Assist',
   Death = 'Death',
-  TrainingEvent = 'TrainingEvent',
 }
 
 export const includeInHighlight = (type: BookmarkType): boolean =>
@@ -94,7 +93,6 @@ export interface Bookmark {
   type: BookmarkType;
   subtype?: BookmarkSubtype;
   time: string;
-  trainingEventName?: string;
 }
 
 export interface Recording {
@@ -246,6 +244,7 @@ export interface TrainingEventDefinition {
   name: string;
   type: 'Trigger' | 'Exclusion';
   classId: number;
+  bookmarkType?: BookmarkType;
   screenRegionX?: number;
   screenRegionY?: number;
   screenRegionW?: number;

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { sendMessageToBackend } from '../Utils/MessageUtils';
-import type { TrainingEventDefinition } from '../Models/types';
+import { BookmarkType, type TrainingEventDefinition } from '../Models/types';
 
 interface Box { x: number; y: number; w: number; h: number; }
 interface LabeledBox { id: number; box: Box; eventId: number | null; eventName: string; }
@@ -213,7 +213,7 @@ export default function TrainingOverlay({ videoRef, isPaused, enabled, events, g
 
   function createAndAssign() {
     if (!newName.trim() || !picker) return;
-    const ev: TrainingEventDefinition = { id: (Date.now() % 2000000000) + Math.floor(Math.random() * 1000), name: newName.trim(), type: 'Trigger', classId: 0 };
+    const ev: TrainingEventDefinition = { id: (Date.now() % 2000000000) + Math.floor(Math.random() * 1000), name: newName.trim(), type: 'Trigger', classId: 0, bookmarkType: BookmarkType.Kill };
     sendMessageToBackend('SaveTrainingEvent', { gameId, event: ev });
     setBoxes(prev => { const n = [...prev]; n[picker.idx] = { ...n[picker.idx], eventId: ev.id, eventName: ev.name }; return n; });
     setNewName(''); setShowNew(false); setPicker(null);

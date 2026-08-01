@@ -1,24 +1,23 @@
-#if ENABLE_TRAINING
+#if ENABLE_ML_DETECTION
 
 using System.Buffers;
+using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using ObsKit.NET;
 using ObsKit.NET.Native.Types;
 using ObsKit.NET.Video;
-using Segra.Backend.Detection;
 using Serilog;
 
-namespace Segra.Backend.Training;
+namespace Segra.Backend.Detection;
 
-public class TrainingEventDetector : IDisposable
+public class VisualEventDetector : IDisposable
 {
     private const int ModelInputSize = 640;
     private const int FpsDivisor = 60;
     private const int ObsSubscribeWidth = 1920;
     private const int ObsSubscribeHeight = 1080;
-
     private readonly int _detectionIntervalMs;
     private RawVideoSubscription? _subscription;
     private CancellationTokenSource? _cts;
@@ -30,14 +29,14 @@ public class TrainingEventDetector : IDisposable
         });
 
     private InferenceSession? _session;
+    private string? _gameId;
     private int _isProcessing;
     private List<RegionGroup> _regionGroups = new();
     private int _numClasses;
-    private bool _dumpedFrame;
 
     public event Action<List<DetectionResult>>? DetectionsAvailable;
 
-    public TrainingEventDetector(int detectionIntervalMs = 1000)
+    public VisualEventDetector(int detectionIntervalMs = 1000)
     {
         _detectionIntervalMs = detectionIntervalMs;
     }
@@ -49,16 +48,12 @@ public class TrainingEventDetector : IDisposable
         public int Height { get; set; }
     }
 
-    public bool Start(string gameId)
+    public void Start(string gameId)
     {
-        _session = TrainingEventService.LoadModel(gameId);
-        if (_session == null)
-        {
-            Log.Warning("TrainingEventDetector: No model found for game {GameId}", gameId);
-            return false;
-        }
+        _gameId = gameId;
+        _session = ModelService.LoadModel(gameId);
 
-        var definitions = TrainingEventService.LoadEventDefinitions(gameId);
+        var definitions = ModelService.LoadEventDefinitions(gameId);
         _numClasses = definitions.Count;
         _regionGroups = BuildRegionGroups(definitions);
 
@@ -72,9 +67,8 @@ public class TrainingEventDetector : IDisposable
         _cts = new CancellationTokenSource();
         _detectionLoop = Task.Run(() => DetectionLoopAsync(_cts.Token));
 
-        Log.Information("TrainingEventDetector: Started for game {GameId} with {RegionGroupCount} region groups",
+        Log.Information("VisualEventDetector: Started for game {GameId} with {RegionGroupCount} region groups",
             gameId, _regionGroups.Count);
-        return true;
     }
 
     public void Stop()
@@ -84,14 +78,27 @@ public class TrainingEventDetector : IDisposable
         var sub = Interlocked.Exchange(ref _subscription, null);
         sub?.Dispose();
 
-        try { _detectionLoop?.GetAwaiter().GetResult(); }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { Log.Warning(ex, "TrainingEventDetector: detection loop exit"); }
+        if (_detectionLoop != null)
+        {
+            try
+            {
+                if (!_detectionLoop.Wait(TimeSpan.FromSeconds(3)))
+                {
+                    Log.Warning("VisualEventDetector: detection loop did not exit within 3s");
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Warning(ex, "VisualEventDetector: detection loop exit"); }
+        }
 
-        _session?.Dispose();
+        if (_gameId != null)
+        {
+            ModelService.UnloadModel(_gameId);
+        }
         _session = null;
+        _gameId = null;
 
-        Log.Information("TrainingEventDetector: Stopped");
+        Log.Information("VisualEventDetector: Stopped");
     }
 
     private void OnFrame(in RawVideoFrame frame)
@@ -123,7 +130,7 @@ public class TrainingEventDetector : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "TrainingEventDetector: frame copy error");
+            Log.Warning(ex, "VisualEventDetector: frame copy error");
             Interlocked.Exchange(ref _isProcessing, 0);
         }
     }
@@ -154,8 +161,20 @@ public class TrainingEventDetector : IDisposable
                     var fH = frameData.Height;
                     var fPixels = fW * fH;
 
-                    // Full-frame grayscale once (not per-region)
                     var grayFrame = BgraToGray(frameData.Buffer, fW, fH);
+
+                    // Skip near-black frames (loading screens, transitions) — they can produce NaN in the model
+                    int brightPixels = 0;
+                    int totalPixels = fW * fH;
+                    for (int i = 0; i < totalPixels && brightPixels <= 10; i++)
+                    {
+                        if (grayFrame[i] > 15) brightPixels++;
+                    }
+                    if (brightPixels <= 10)
+                    {
+                        Log.Debug("DetectionLoop: skipping near-black frame");
+                        continue;
+                    }
 
                     foreach (var group in _regionGroups)
                     {
@@ -171,23 +190,14 @@ public class TrainingEventDetector : IDisposable
 
                         var resized = CropAndResizeGray(grayFrame, fW, fH, cropX, cropY, cropW, cropH, ModelInputSize, ModelInputSize);
 
-                        // DEBUG: dump first region crop once for Python comparison
-                        if (!_dumpedFrame)
-                        {
-                            _dumpedFrame = true;
-                            var dumpDir = Path.Combine(AppContext.BaseDirectory, "data", "training", "debug");
-                            Directory.CreateDirectory(dumpDir);
-                            var dumpPath = Path.Combine(dumpDir, "live_crop.raw");
-                            File.WriteAllBytes(dumpPath, resized[..(ModelInputSize * ModelInputSize)]);
-                            Log.Information("FRAME DUMP: region [{X:F4},{Y:F4},{W:F4},{H:F4}] crop {CropW}x{CropH} -> {Dst}x{Dst} saved to {Path}",
-                                group.X, group.Y, group.W, group.H, cropW, cropH, ModelInputSize, ModelInputSize, dumpPath);
-                        }
-
                         try
                         {
                             var results = RunInferenceOnGray(session, resized);
-                            MapDetectionsToFullFrame(results, group, fW, fH);
-                            allResults.AddRange(results);
+                            if (results != null)
+                            {
+                                MapDetectionsToFullFrame(results, group, fW, fH);
+                                allResults.AddRange(results);
+                            }
                         }
                         finally
                         {
@@ -207,7 +217,7 @@ public class TrainingEventDetector : IDisposable
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                Log.Warning(ex, "TrainingEventDetector: detection error");
+                Log.Warning(ex, "VisualEventDetector: detection error");
                 Interlocked.Exchange(ref _isProcessing, 0);
             }
         }
@@ -376,7 +386,6 @@ public class TrainingEventDetector : IDisposable
         a.Y = y;
     }
 
-    /// <summary>Convert full BGRA frame to grayscale luminance (one byte per pixel).</summary>
     internal static byte[] BgraToGray(byte[] bgra, int w, int h)
     {
         var pixels = w * h;
@@ -392,18 +401,15 @@ public class TrainingEventDetector : IDisposable
         return gray;
     }
 
-    /// <summary>Crop region from full-frame grayscale then bilinear resize (matches OpenCV's INTER_LINEAR).</summary>
     internal static byte[] CropAndResizeGray(byte[] srcGray, int srcW, int srcH,
         int cropX, int cropY, int cropW, int cropH, int dstW, int dstH)
     {
-        // Step 1: crop rect from grayscale
         var crop = new byte[cropW * cropH];
         for (int y = 0; y < cropH; y++)
         {
             Array.Copy(srcGray, (cropY + y) * srcW + cropX, crop, y * cropW, cropW);
         }
 
-        // Step 2: bilinear resize (OpenCV INTER_LINEAR convention)
         var dst = ArrayPool<byte>.Shared.Rent(dstW * dstH);
         for (int dy = 0; dy < dstH; dy++)
         {
@@ -431,33 +437,60 @@ public class TrainingEventDetector : IDisposable
         return dst;
     }
 
-    private static List<DetectionResult> RunInferenceOnGray(
+    private List<DetectionResult>? RunInferenceOnGray(
         InferenceSession session, byte[] grayData)
     {
-        const int inputSize = ModelInputSize;
-        var pixels = inputSize * inputSize;
-        var inputTensor = new float[pixels * 3];
-
-        for (int i = 0; i < pixels; i++)
+        try
         {
-            var val = grayData[i] / 255f;
-            inputTensor[i] = val;
-            inputTensor[i + pixels] = val;
-            inputTensor[i + 2 * pixels] = val;
+            const int inputSize = ModelInputSize;
+            var pixels = inputSize * inputSize;
+            var inputTensor = new float[pixels * 3];
+
+            for (int i = 0; i < pixels; i++)
+            {
+                var val = grayData[i] / 255f;
+                inputTensor[i] = val;
+                inputTensor[i + pixels] = val;
+                inputTensor[i + 2 * pixels] = val;
+            }
+
+            // Pin tensor memory to prevent GC from collecting it during native inference
+            var handle = GCHandle.Alloc(inputTensor, GCHandleType.Pinned);
+            try
+            {
+                var tensor = new DenseTensor<float>(inputTensor, new[] { 1, 3, inputSize, inputSize });
+                var inputName = session.InputNames[0];
+                var inputValue = NamedOnnxValue.CreateFromTensor(inputName, tensor);
+                var container = new List<NamedOnnxValue> { inputValue };
+
+                var outputNames = session.OutputMetadata.Keys.ToList();
+
+                using (var runOptions = new RunOptions())
+                using (var results = session.Run(container, outputNames, runOptions))
+                {
+                    var result = results.First().AsTensor<float>().ToArray();
+                    return ParseYoloOutput(result.AsSpan(), inputSize);
+                }
+            }
+            finally
+            {
+                handle.Free();
+            }
         }
-
-        var tensor = new DenseTensor<float>(inputTensor, new[] { 1, 3, inputSize, inputSize });
-        var inputName = session.InputNames[0];
-        var inputValue = NamedOnnxValue.CreateFromTensor(inputName, tensor);
-        var container = new List<NamedOnnxValue> { inputValue };
-
-        var outputNames = session.OutputMetadata.Keys.ToList();
-
-        using (var runOptions = new RunOptions())
-        using (var results = session.Run(container, outputNames, runOptions))
+        catch (ObjectDisposedException)
         {
-            var result = results.First().AsTensor<float>().ToArray();
-            return ParseYoloOutput(result.AsSpan(), inputSize);
+            Log.Debug("RunInferenceOnGray: session disposed");
+            return null;
+        }
+        catch (OnnxRuntimeException ex)
+        {
+            Log.Warning(ex, "RunInferenceOnGray: ONNX error");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "RunInferenceOnGray: inference error");
+            return null;
         }
     }
 
@@ -501,8 +534,11 @@ public class TrainingEventDetector : IDisposable
             });
         }
 
-        float highestConf = 0;
-        if (results.Count == 0)
+        var highestConf = results.Count > 0
+            ? results.Max(r => r.Confidence)
+            : 0f;
+
+        if (results.Count == 0 && numDetections > 0)
         {
             for (int i = 0; i < numDetections; i++)
             {
@@ -513,8 +549,12 @@ public class TrainingEventDetector : IDisposable
                 }
             }
         }
-        Log.Debug("ParseYoloOutput: {Results} results, highestConf={Conf:F4}, {Total} detections, numClasses={Classes}",
-            results.Count, highestConf, numDetections, numClasses);
+
+        var classIds = results.Count > 0
+            ? string.Join(",", results.Select(r => $"{r.ClassId}({r.Confidence:F2})"))
+            : "none";
+        Log.Debug("ParseYoloOutput: {Results} results, highestConf={Conf:F4}, classIds=[{ClassIds}], {Total} detections, numClasses={Classes}",
+            results.Count, highestConf, classIds, numDetections, numClasses);
         return results;
     }
 

@@ -22,6 +22,7 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(version),
+    __ENABLE_TRAINING_EVENTS__: JSON.stringify(true),
   },
   build: {
     // Add cache busting for assets with content hashing
