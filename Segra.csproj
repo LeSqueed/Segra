@@ -180,6 +180,25 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Always copy model + events for runtime ML detection -->
+    <Content Include="data\training\**\model.onnx" Exclude="data\training\**\dataset\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="data\training\**\events.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Full training data (samples, dataset) only when explicitly requested -->
+  <!-- Use: dotnet build -p:CopyTrainingData=true -->
+  <ItemGroup Condition="'$(CopyTrainingData)' == 'true'">
+    <Content Include="data\training\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <Target
     Name="BuildFrontendAssets"
     Inputs="@(FrontendSourceFiles)"
