@@ -12,6 +12,7 @@ using Segra.Backend.Platform;
 using Segra.Backend.Recorder;
 using Segra.Backend.Core.Models;
 using Segra.Backend.Windows.Storage;
+using System.Reflection;
 using System.Runtime.InteropServices;
 #if WINDOWS
 using Segra.Backend.Windows.Power;
@@ -202,11 +203,16 @@ namespace Segra.Backend.App
                 if (!IsVSCodeDebug)
                 {
                     PhotinoServer
-                        .CreateStaticFileServer(args, out baseUrl)
+                        .CreateStaticFileServer(args, startPort: 44040, portRange: 100, webRootFolder: "wwwroot", out baseUrl)
                         .RunAsync();
                 }
 
-                appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html";
+                // Version-stamped URL: WebKitGTK's disk cache persists across app updates and the
+                // static server sends no cache headers, so a bare /index.html can keep rendering
+                // the previous build's frontend until a manual refresh.
+                string? appVersion = Assembly.GetExecutingAssembly()
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                appUrl = IsDebugMode ? "http://localhost:2882" : $"{baseUrl}/index.html?v={Uri.EscapeDataString(appVersion ?? "0")}";
 
                 if (IsDebugMode)
                 {
@@ -278,7 +284,6 @@ namespace Segra.Backend.App
 
                 // Start WebSocket and Load Settings
                 Task.Run(MessageService.StartWebsocket);
-                Task.Run(MessageService.StartLegacyPortFallback);
                 Task.Run(StorageService.EnsureStorageBelowLimit);
 
                 // Check for updates
@@ -475,6 +480,22 @@ namespace Segra.Backend.App
             }
         }
 
+        private static async Task BringWindowToForegroundAsync()
+        {
+            if (Window == null)
+                return;
+
+            Window.Invoke(() =>
+            {
+                Window.SetMinimized(false);
+                Window.SetTopMost(true);
+            });
+            await Task.Delay(200);
+            Window.Invoke(() => Window.SetTopMost(false));
+            FocusApplicationWindow();
+            Log.Information("Application window brought to foreground");
+        }
+
         private static async Task ShowApplicationWindow()
         {
             Log.Information("Showing application window. Window is " + (Window == null ? "null" : "not null"));
@@ -485,15 +506,7 @@ namespace Segra.Backend.App
                 {
                     await Task.Delay(200);
                     Log.Information("Bringing application window to foreground from scheduled task");
-                    if (Window != null)
-                    {
-                        Window.SetMinimized(false);
-                        Window.SetTopMost(true);
-                        await Task.Delay(200);
-                        Window.SetTopMost(false);
-                        FocusApplicationWindow();
-                        Log.Information("Application window brought to foreground");
-                    }
+                    await BringWindowToForegroundAsync();
                 });
 
                 LoadFrontend();
@@ -501,12 +514,7 @@ namespace Segra.Backend.App
             else
             {
                 Log.Information("Bringing application window to foreground. Window is not null");
-                Window.SetMinimized(false);
-                Window.SetTopMost(true);
-                await Task.Delay(200);
-                Window.SetTopMost(false);
-                FocusApplicationWindow();
-                Log.Information("Application window brought to foreground");
+                await BringWindowToForegroundAsync();
             }
         }
 
@@ -695,10 +703,13 @@ namespace Segra.Backend.App
                                 {
                                     if (Window != null)
                                     {
-                                        Window.SetMinimized(false);
-                                        Window.SetTopMost(true);
+                                        Window.Invoke(() =>
+                                        {
+                                            Window.SetMinimized(false);
+                                            Window.SetTopMost(true);
+                                        });
                                         Thread.Sleep(200);
-                                        Window.SetTopMost(false);
+                                        Window.Invoke(() => Window.SetTopMost(false));
                                         Log.Information("Window brought to foreground directly from pipe server");
                                     }
                                     else
