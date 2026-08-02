@@ -493,8 +493,9 @@ namespace Segra.Backend.Media
                 {
                     videoFilterArgs = "-vf \"libplacebo=tonemapping=hable:gamut_mode=perceptual:peak_detect=1:contrast_recovery=0.35:smoothing_period=60:scene_threshold_low=5.5:scene_threshold_high=10:deband=true:deband_iterations=3:deband_threshold=8:deband_radius=24:dithering=blue:dither_temporal=true\" ";
                 }
+                colorArgs = "-colorspace bt709 -color_primaries bt709 -color_trc bt709 ";
                 pixFmtArgs = "-pix_fmt yuv420p ";
-                videoCodecArgs = $"-c:v {videoCodec} {presetArgs} {qualityArgs} {pixFmtArgs}{fpsArg} ";
+                videoCodecArgs = $"-c:v {videoCodec} {colorArgs}{presetArgs} {qualityArgs} {pixFmtArgs}{fpsArg} ";
             }
             else if (!useStreamCopy)
             {
