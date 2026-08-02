@@ -2292,7 +2292,7 @@ export default function VideoComponent({ video }: { video: Content }) {
                   </Button>
                 </>
               )}
-              {(video.type === 'Session' || video.type === 'Buffer') && (
+              {(video.type === 'Session' || video.type === 'Buffer' || video.type === 'Highlight') && (
                 <>
                   <Button
                     variant="primary"
@@ -2349,7 +2349,7 @@ export default function VideoComponent({ video }: { video: Content }) {
             </div>
 
             <div className="flex items-center gap-3">
-              {(video.type === 'Session' || video.type === 'Buffer') && (
+              {(video.type === 'Session' || video.type === 'Buffer' || video.type === 'Highlight') && (
                 <>
                   {availableBookmarkTypes.length > 0 && (
                     <div className="flex items-center h-10 gap-0 px-0 border rounded-lg bg-base-300 join border-base-400">
@@ -2401,7 +2401,7 @@ export default function VideoComponent({ video }: { video: Content }) {
             </div>
           </div>
         </div>
-        {(video.type === 'Session' || video.type === 'Buffer') && (
+        {(video.type === 'Session' || video.type === 'Buffer' || video.type === 'Highlight') && (
           <div className="flex flex-col h-full pt-4 pl-4 pr-1 border-l bg-base-300 text-neutral-content w-52 2xl:w-70.25 border-base-400">
             <div className="flex-1 p-1 overflow-y-scroll">
               {segments.map((seg, index) => (
