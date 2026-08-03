@@ -9,7 +9,13 @@ namespace Segra.Backend.App
         {
             try
             {
-                string exePath = Path.ChangeExtension(Environment.ProcessPath, ".exe");
+                string? processPath = Environment.ProcessPath;
+                if (processPath == null)
+                {
+                    Log.Error("Failed to get executable path");
+                    return;
+                }
+                string exePath = Path.ChangeExtension(processPath, ".exe");
                 if (exePath == null)
                 {
                     Log.Error("Failed to get executable path");
