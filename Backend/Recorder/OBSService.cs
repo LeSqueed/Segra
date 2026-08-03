@@ -402,16 +402,7 @@ namespace Segra.Backend.Recorder
 
                 Log.Information("Resetting replay buffer...");
 
-                bool stopped = buffer.Stop(waitForCompletion: true, timeoutMs: 30000);
-
-                if (!stopped)
-                {
-                    Log.Warning("Replay buffer did not stop within timeout for reset. Forcing stop.");
-                    buffer.ForceStop();
-                    await Task.Delay(500);
-                }
-
-                bool started = buffer.Start();
+                bool started = await buffer.ResetAsync(TimeSpan.FromSeconds(30));
 
                 if (!started)
                 {
@@ -564,12 +555,11 @@ namespace Segra.Backend.Recorder
             {
                 // Initialize OBS using ObsKit.NET fluent API
 #if WINDOWS
-                // Absolute paths so the game-capture inject-helper gets an absolute graphics-hook path.
-                string baseDir = AppContext.BaseDirectory.Replace('\\', '/').TrimEnd('/');
-                string obsModulePath = $"{baseDir}/obs-plugins/64bit/";
-                string obsModuleDataPath = $"{baseDir}/data/obs-plugins/%module%/";
-                string obsDataPath = $"{baseDir}/data/libobs/";
-                Log.Information($"OBS runtime paths (absolute): data='{obsDataPath}', modules='{obsModulePath}'");
+                string baseDir = AppContext.BaseDirectory;
+                string obsModulePath = Path.Combine(baseDir, "obs-plugins", "64bit");
+                string obsModuleDataPath = Path.Combine(baseDir, "data", "obs-plugins", "%module%");
+                string obsDataPath = Path.Combine(baseDir, "data", "libobs");
+                Log.Information($"OBS runtime paths: data='{obsDataPath}', modules='{obsModulePath}'");
 #else
                 // The launcher/re-exec resolves the OBS runtime and passes paths via env vars.
                 string obsModulePath = Environment.GetEnvironmentVariable("SEGRA_OBS_MODULE_PATH") ?? "./obs-plugins/";
@@ -929,14 +919,14 @@ namespace Segra.Backend.Recorder
                     // swapchain to sRGB, so an HDR game would be captured as SDR. Force Rec.2100 PQ.
                     if (_isHdrRecording)
                     {
-                        GameCaptureSource.Update(s => s.Set("rgb10a2_space", "2100pq"));
+                        GameCaptureSource.SetRgb10A2ColorSpace(GameCapture.Rgb10A2ColorSpace.Pq2100);
                         Log.Information("Game capture color space set to Rec.2100 PQ (HDR)");
                     }
 
                     // Enable capture_audio on game capture when using GameOnly or GameAndDiscord mode
                     if (Settings.Instance.AudioOutputMode != AudioOutputMode.All)
                     {
-                        GameCaptureSource.Update(s => s.Set("capture_audio", true));
+                        GameCaptureSource.SetCaptureAudio();
                         Log.Information($"Game capture audio enabled (mode: {Settings.Instance.AudioOutputMode})");
                     }
 
@@ -2213,12 +2203,8 @@ namespace Segra.Backend.Recorder
         {
             try
             {
-                var voiceSource = new Source("wasapi_process_output_capture", $"{app.Name} Audio");
-                voiceSource.Update(s =>
-                {
-                    s.Set("window", app.Window);
-                    s.Set("priority", 2); // WINDOW_PRIORITY_EXE
-                });
+                var voiceSource = new ApplicationAudioCapture($"{app.Name} Audio")
+                    .SetWindow(app.Window, ApplicationAudioCapture.WindowPriority.Executable);
                 voiceSource.IsMuted = muted;
                 _mainScene!.AddSource(voiceSource);
                 _voiceChatSources.Add((app.Name, app.Window, voiceSource));
@@ -2279,7 +2265,7 @@ namespace Segra.Backend.Recorder
                 if (source == null) return;
 
                 string fileName = Path.GetFileName(exePath);
-                source.Update(s => s.Set("window", $"*:*:{fileName}"));
+                source.SetWindow($"*:*:{fileName}");
                 Log.Information($"Updated game capture source to: {fileName}");
             }
             catch (Exception ex)
