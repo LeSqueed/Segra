@@ -206,6 +206,7 @@ export type ClipEncoder = 'gpu' | 'cpu';
 export type ClipCodec = 'h264' | 'h265' | 'av1';
 export type ClipFPS = 0 | 24 | 30 | 60 | 120 | 144;
 export type ClipAudioQuality = '96k' | '128k' | '192k' | '256k' | '320k';
+export type ClipHdrMode = 'source' | 'sdr';
 export type CpuClipPreset =
   | 'ultrafast'
   | 'superfast'
@@ -312,6 +313,7 @@ export interface Settings {
   clipAudioQuality: ClipAudioQuality;
   clipPreset: ClipPreset;
   clipKeepSeparateAudioTracks: boolean;
+  clipHdrMode: ClipHdrMode;
   keybindings: Keybind[];
   games: GameSetting[];
   gameIntegrations: GameIntegrations;
@@ -396,6 +398,7 @@ export const initialSettings: Settings = {
   clipAudioQuality: '128k',
   clipPreset: 'veryfast',
   clipKeepSeparateAudioTracks: false,
+  clipHdrMode: 'source',
   soundEffectsVolume: 1,
   showNewBadgeOnVideos: false,
   showGameBackground: true,

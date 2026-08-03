@@ -76,6 +76,21 @@ if [[ $selected -eq 0 ]]; then
     dotnet publish Segra.csproj -c Release --self-contained \
         -r win-x64 -f net10.0-windows10.0.19041.0 -o publish
 
+    echo "=== Replacing ffmpeg with full build (libplacebo) ==="
+    if command -v curl &>/dev/null; then
+        curl -L -o /tmp/ffmpeg.7z "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z"
+    elif command -v wget &>/dev/null; then
+        wget -O /tmp/ffmpeg.7z "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z"
+    fi
+    if [ -f /tmp/ffmpeg.7z ]; then
+        7z x /tmp/ffmpeg.7z -o/tmp/ffmpeg-temp -y &>/dev/null
+        find /tmp/ffmpeg-temp -name ffmpeg.exe -exec cp {} publish/ \;
+        rm -rf /tmp/ffmpeg.7z /tmp/ffmpeg-temp
+        echo "Full ffmpeg installed."
+    else
+        echo "WARNING: Could not download full ffmpeg build. Using essentials build from publish directory."
+    fi
+
     echo ""
     echo "=== Done! ==="
     WIN_DIR=$(echo "$SCRIPT_DIR" | sed 's|^/\([a-zA-Z]\)/|\1:/|' | sed 's|/|\\|g')
