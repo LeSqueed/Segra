@@ -104,13 +104,29 @@ namespace Segra.Backend.Games
                         {
                             var defs = _eventDefinitions;
                             if (defs == null) return;
+
+                            // Check if any exclusion events are active this frame
+                            var now = DateTime.Now;
+                            bool exclusionActive = detections.Any(d =>
+                            {
+                                var def = defs.FirstOrDefault(ev => ev.ClassId == d.ClassId);
+                                return def != null && def.Type == EventType.Exclusion;
+                            });
+
                             foreach (var detection in detections)
                             {
                                 var def = defs.FirstOrDefault(d => d.ClassId == detection.ClassId);
                                 if (def == null || def.Type == EventType.Exclusion) continue;
-                                if (!_cooldownTracker.CanDetect(detection.ClassId, 1000, DateTime.Now)) continue;
-                                _cooldownTracker.Record(detection.ClassId, DateTime.Now);
-                                _cooldownTracker.CreateBookmark(detection, def, DateTime.Now);
+                                // Suppress trigger bookmarks while an exclusion UI is visible
+                                if (exclusionActive)
+                                {
+                                    Log.Debug("Suppressing trigger {ClassId} ({Name}) due to active exclusion",
+                                        detection.ClassId, def.Name);
+                                    continue;
+                                }
+                                if (!_cooldownTracker.CanDetect(detection.ClassId, 1000, now)) continue;
+                                _cooldownTracker.Record(detection.ClassId, now);
+                                _cooldownTracker.CreateBookmark(detection, def, now);
                             }
                         };
                         _visualDetector.Start(safeGameId);

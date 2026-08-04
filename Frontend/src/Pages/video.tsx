@@ -1782,18 +1782,6 @@ export default function VideoComponent({ video }: { video: Content }) {
               )}
             </div>
 
-            {__ENABLE_TRAINING_EVENTS__ && trainingMode && (
-              <div className="absolute top-0 left-0 right-0 z-20 bg-accent/90 text-accent-content text-xs font-semibold px-3 py-1 flex items-center justify-between">
-                <span>Training Mode — Paused. Drag to draw boxes on UI elements.</span>
-                <button
-                  className="btn btn-ghost btn-xs text-accent-content"
-                  onClick={() => setTrainingMode(false)}
-                >
-                  Exit
-                </button>
-              </div>
-            )}
-
             <div
               className={`absolute left-0 right-0 bottom-0 bg-black/70 pb-2 flex flex-col gap-2 transition-transform duration-300 select-none ${isFullscreen ? '' : 'rounded-b-lg'} ${controlsVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'}`}
               onMouseEnter={handleControlsMouseEnter}

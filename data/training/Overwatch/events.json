@@ -60,5 +60,15 @@
     "screenRegionY": 0.0114,
     "screenRegionW": 0.1514,
     "screenRegionH": 0.0568
+  },
+  {
+    "id": 1591136249,
+    "name": "Steel trap",
+    "type": "Exclusion",
+    "classId": 6,
+    "screenRegionX": 0.45,
+    "screenRegionY": 0.6,
+    "screenRegionW": 0.2,
+    "screenRegionH": 0.15
   }
 ]
