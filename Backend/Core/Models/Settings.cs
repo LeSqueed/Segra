@@ -16,10 +16,7 @@ namespace Segra.Backend.Core.Models
             "Replay Buffer",
             "Clips",
             "Highlights",
-            "Settings",
-#if ENABLE_TRAINING_EVENTS
-            "Training",
-#endif
+            "Settings"
         };
 
         private static Settings _instance = new Settings();
@@ -48,7 +45,6 @@ namespace Segra.Backend.Core.Models
         private bool _forceMonoInputSources = false;
         private Display? _selectedDisplay = null;
         private DisplayCaptureMethod _displayCaptureMethod = DisplayCaptureMethod.Auto;
-        private GameCaptureMode _gameCaptureMode = GameCaptureMode.DisplayFallback;
         private WindowState? _lastWindowState = null;
         private bool _enableAi = true;
         private bool _autoGenerateHighlights = true;
@@ -75,7 +71,6 @@ namespace Segra.Backend.Core.Models
         private string _clipAudioQuality = "128k";
         private string _clipPreset = "veryfast";
         private bool _clipKeepSeparateAudioTracks = false;
-        private string _clipHdrMode = "source"; // "source" or "sdr"
         private float _soundEffectsVolume = 0.5f;
         private bool _showNewBadgeOnVideos = false;
         private bool _showGameBackground = true;
@@ -366,19 +361,6 @@ namespace Segra.Backend.Core.Models
                 if (_displayCaptureMethod != value)
                 {
                     _displayCaptureMethod = value;
-                }
-            }
-        }
-
-        [JsonPropertyName("gameCaptureMode")]
-        public GameCaptureMode GameCaptureMode
-        {
-            get => _gameCaptureMode;
-            set
-            {
-                if (_gameCaptureMode != value)
-                {
-                    _gameCaptureMode = value;
                 }
             }
         }
@@ -749,19 +731,6 @@ namespace Segra.Backend.Core.Models
                 if (_clipKeepSeparateAudioTracks != value)
                 {
                     _clipKeepSeparateAudioTracks = value;
-                }
-            }
-        }
-
-        [JsonPropertyName("clipHdrMode")]
-        public string ClipHdrMode
-        {
-            get => _clipHdrMode;
-            set
-            {
-                if (_clipHdrMode != value)
-                {
-                    _clipHdrMode = value;
                 }
             }
         }
@@ -1198,8 +1167,6 @@ namespace Segra.Backend.Core.Models
 
         public DateTime CreatedAt { get; set; }
 
-        public AiAnalysis? AiAnalysis { get; set; }
-
         public string? UploadId { get; set; }
 
         public int? IgdbId { get; set; }
@@ -1211,11 +1178,8 @@ namespace Segra.Backend.Core.Models
         public List<string>? AudioTrackNames { get; set; }
 
         public bool IsImported { get; set; } = false;
-    }
 
-    public class AiAnalysis
-    {
-        public string? Id { get; set; }
+        public bool Compressed { get; set; } = false;
     }
 
     internal class AudioDevice : IEquatable<AudioDevice>
@@ -1314,13 +1278,6 @@ namespace Segra.Backend.Core.Models
         Auto,
         DXGI,
         WGC
-    }
-
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum GameCaptureMode
-    {
-        DisplayFallback,
-        GameOnly
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -1507,9 +1464,7 @@ namespace Segra.Backend.Core.Models
         [JsonPropertyName("gta")]
         public GameIntegrationSettings Gta { get; set; } = new GameIntegrationSettings(true);
 
-#if ENABLE_TRAINING_EVENTS
         [JsonPropertyName("overwatch")]
         public GameIntegrationSettings Overwatch { get; set; } = new GameIntegrationSettings(true);
-#endif
     }
 }

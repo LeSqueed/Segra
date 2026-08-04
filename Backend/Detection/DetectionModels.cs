@@ -1,10 +1,7 @@
 using System.Text.Json.Serialization;
+using Segra.Backend.Core.Models;
 
 namespace Segra.Backend.Detection;
-
-#if ENABLE_ML_DETECTION
-
-using Segra.Backend.Core.Models;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EventType
@@ -20,6 +17,7 @@ public class EventDefinition
     public EventType Type { get; set; }
     public int ClassId { get; set; }
     public BookmarkType? BookmarkType { get; set; }
+    public int? LifetimeMs { get; set; }
     public float? ScreenRegionX { get; set; }
     public float? ScreenRegionY { get; set; }
     public float? ScreenRegionW { get; set; }
@@ -44,5 +42,3 @@ internal class RegionGroup
     public float W { get; set; }
     public float H { get; set; }
 }
-
-#endif

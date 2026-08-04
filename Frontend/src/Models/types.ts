@@ -3,7 +3,6 @@ export type ContentType = 'Session' | 'Buffer' | 'Clip' | 'Highlight';
 export type RecordingMode = 'Session' | 'Buffer' | 'Hybrid';
 
 export type DisplayCaptureMethod = 'Auto' | 'DXGI' | 'WGC';
-export type GameCaptureMode = 'DisplayFallback' | 'GameOnly';
 
 export type AudioOutputMode = 'All' | 'GameOnly' | 'GameAndDiscord';
 
@@ -24,6 +23,7 @@ export interface Content {
   uploadId?: string;
   igdbId?: number;
   isImported: boolean;
+  compressed: boolean;
   audioTrackNames?: string[];
 }
 
@@ -200,14 +200,13 @@ export interface GameIntegrations {
   runescapeDragonwilds: GameIntegrationSettings;
   warThunder: GameIntegrationSettings;
   gta: GameIntegrationSettings;
-  overwatch?: GameIntegrationSettings;
+  overwatch: GameIntegrationSettings;
 }
 
 export type ClipEncoder = 'gpu' | 'cpu';
 export type ClipCodec = 'h264' | 'h265' | 'av1';
 export type ClipFPS = 0 | 24 | 30 | 60 | 120 | 144;
 export type ClipAudioQuality = '96k' | '128k' | '192k' | '256k' | '320k';
-export type ClipHdrMode = 'source' | 'sdr';
 export type CpuClipPreset =
   | 'ultrafast'
   | 'superfast'
@@ -239,19 +238,7 @@ export type ClipPreset =
 export type VideoQualityPreset = 'low' | 'standard' | 'high' | 'custom';
 export type ClipQualityPreset = 'low' | 'standard' | 'high' | 'custom';
 
-export interface TrainingEventDefinition {
-  id: number;
-  name: string;
-  type: 'Trigger' | 'Exclusion';
-  classId: number;
-  bookmarkType?: BookmarkType;
-  screenRegionX?: number;
-  screenRegionY?: number;
-  screenRegionW?: number;
-  screenRegionH?: number;
-}
-
-export type MenuItemId = 'Full Sessions' | 'Replay Buffer' | 'Clips' | 'Highlights' | 'Settings' | 'Training';
+export type MenuItemId = 'Full Sessions' | 'Replay Buffer' | 'Clips' | 'Highlights' | 'Settings';
 
 export interface MenuItemPreference {
   id: MenuItemId;
@@ -264,7 +251,6 @@ export const DEFAULT_MENU_ITEMS: MenuItemPreference[] = [
   { id: 'Clips', visible: true },
   { id: 'Highlights', visible: true },
   { id: 'Settings', visible: true },
-  { id: 'Training', visible: true },
 ];
 
 export const MENU_ITEM_CONTENT_TYPES: Record<MenuItemId, ContentType[]> = {
@@ -273,7 +259,6 @@ export const MENU_ITEM_CONTENT_TYPES: Record<MenuItemId, ContentType[]> = {
   Clips: ['Clip'],
   Highlights: ['Highlight'],
   Settings: [],
-  Training: [],
 };
 
 export const menuItemHasContent = (id: MenuItemId, content: Content[]): boolean => {
@@ -304,7 +289,6 @@ export interface Settings {
   inputNoiseSuppression: boolean;
   selectedDisplay: Display | null;
   displayCaptureMethod: DisplayCaptureMethod;
-  gameCaptureMode: GameCaptureMode;
   selectedOBSVersion: string | null; // null means automatic (latest non-beta)
   enableAi: boolean;
   autoGenerateHighlights: boolean;
@@ -328,7 +312,6 @@ export interface Settings {
   clipAudioQuality: ClipAudioQuality;
   clipPreset: ClipPreset;
   clipKeepSeparateAudioTracks: boolean;
-  clipHdrMode: ClipHdrMode;
   keybindings: Keybind[];
   games: GameSetting[];
   gameIntegrations: GameIntegrations;
@@ -389,7 +372,6 @@ export const initialSettings: Settings = {
   inputNoiseSuppression: true,
   selectedDisplay: null, // Default to null (auto-select)
   displayCaptureMethod: 'Auto',
-  gameCaptureMode: 'DisplayFallback',
   selectedOBSVersion: null, // null means automatic (latest non-beta)
   enableAi: true,
   autoGenerateHighlights: true,
@@ -413,7 +395,6 @@ export const initialSettings: Settings = {
   clipAudioQuality: '128k',
   clipPreset: 'veryfast',
   clipKeepSeparateAudioTracks: false,
-  clipHdrMode: 'source',
   soundEffectsVolume: 1,
   showNewBadgeOnVideos: false,
   showGameBackground: true,
@@ -446,6 +427,7 @@ export const initialSettings: Settings = {
     runescapeDragonwilds: { enabled: true },
     warThunder: { enabled: true },
     gta: { enabled: true },
+    overwatch: { enabled: true },
   },
 };
 

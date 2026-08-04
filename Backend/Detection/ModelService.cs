@@ -1,5 +1,3 @@
-#if ENABLE_ML_DETECTION
-
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
@@ -22,30 +20,28 @@ public static class ModelService
 
     public static List<EventDefinition> LoadEventDefinitions(string gameId)
     {
-        if (_definitions.TryGetValue(gameId, out var cached))
-            return cached;
-
-        var path = Path.Combine(GetGamePath(gameId), "events.json");
-
-        if (!File.Exists(path))
+        return _definitions.GetOrAdd(gameId, id =>
         {
-            var empty = new List<EventDefinition>();
-            _definitions[gameId] = empty;
-            return empty;
-        }
+            var path = Path.Combine(GetGamePath(id), "events.json");
 
-        var json = File.ReadAllText(path);
-        var definitions = JsonSerializer.Deserialize<List<EventDefinition>>(json, _jsonOptions) ?? new();
-        _definitions[gameId] = definitions;
-        Log.Information("Loaded {Count} event definitions for game {GameId}", definitions.Count, gameId);
-        return definitions;
+            if (!File.Exists(path))
+            {
+                Log.Information("No events.json found for game {GameId}", id);
+                return new List<EventDefinition>();
+            }
+
+            var json = File.ReadAllText(path);
+            var definitions = JsonSerializer.Deserialize<List<EventDefinition>>(json, _jsonOptions) ?? new();
+            Log.Information("Loaded {Count} event definitions for game {GameId}", definitions.Count, id);
+            return definitions;
+        });
     }
 
     public static void SaveEventDefinitions(string gameId, List<EventDefinition> definitions)
     {
         var path = Path.Combine(GetGamePath(gameId), "events.json");
         var json = JsonSerializer.Serialize(definitions, _jsonOptions);
-        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, json);
         _definitions[gameId] = definitions;
         Log.Information("Saved {Count} event definitions for game {GameId}", definitions.Count, gameId);
@@ -58,22 +54,21 @@ public static class ModelService
 
     public static InferenceSession LoadModel(string gameId)
     {
-        if (_models.TryGetValue(gameId, out var existing))
-            return existing;
+        return _models.GetOrAdd(gameId, id =>
+        {
+            var modelPath = GetModelPath(id);
 
-        var modelPath = GetModelPath(gameId);
+            if (!File.Exists(modelPath))
+                throw new FileNotFoundException($"ONNX model not found for game {id}", modelPath);
 
-        if (!File.Exists(modelPath))
-            throw new FileNotFoundException($"ONNX model not found for game {gameId}", modelPath);
+            var options = new SessionOptions();
+            options.AppendExecutionProvider_CPU();
+            options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+            var session = new InferenceSession(modelPath, options);
 
-        var options = new SessionOptions();
-        options.AppendExecutionProvider_CPU();
-        options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-        var session = new InferenceSession(modelPath, options);
-        _models[gameId] = session;
-
-        Log.Information("Loaded ONNX model for game {GameId}", gameId);
-        return session;
+            Log.Information("Loaded ONNX model for game {GameId}", id);
+            return session;
+        });
     }
 
     public static void UnloadModel(string gameId)
@@ -98,4 +93,4 @@ public static class ModelService
     }
 }
 
-#endif
+

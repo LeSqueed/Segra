@@ -12,9 +12,7 @@ using Segra.Backend.Games.RunescapeDragonwilds;
 using Segra.Backend.Games.RocketLeague;
 using Segra.Backend.Games.GrandTheftAuto;
 #endif
-#if ENABLE_ML_DETECTION
 using Segra.Backend.Detection;
-#endif
 
 namespace Segra.Backend.Games
 {
@@ -29,6 +27,7 @@ namespace Segra.Backend.Games
         private const int MINECRAFT_IGDB_ID = 135400;
         private const int RUNESCAPE_DRAGONWILDS_IGDB_ID = 337712;
         private const int WAR_THUNDER_IGDB_ID = 2165;
+        private const int OVERWATCH_IGDB_ID = 125174;
 
         private const int GTA_V_IGDB_ID = 1020;
         private const int FIVEM_IGDB_ID = 146553;
@@ -36,11 +35,9 @@ namespace Segra.Backend.Games
 
         private static Integration? _gameIntegration;
         private static readonly SemaphoreSlim _lock = new(1, 1);
-#if ENABLE_ML_DETECTION
         private static VisualEventDetector? _visualDetector;
         private static CooldownTracker? _cooldownTracker;
         private static List<EventDefinition>? _eventDefinitions;
-#endif
 
         public static async Task Start(int? igdbId, string? gameName = null, string? exePath = null)
         {
@@ -76,6 +73,8 @@ namespace Segra.Backend.Games
                     _gameIntegration = new RunescapeDragonwildsIntegration();
                 else if ((igdbId == WAR_THUNDER_IGDB_ID || gameName?.Equals("War Thunder", StringComparison.OrdinalIgnoreCase) == true) && integrations.WarThunder.Enabled)
                     _gameIntegration = new WarThunderIntegration();
+                else if ((igdbId == OVERWATCH_IGDB_ID || gameName?.Equals("Overwatch", StringComparison.OrdinalIgnoreCase) == true) && integrations.Overwatch.Enabled)
+                    _gameIntegration = null;
 #if WINDOWS
                 else if ((igdbId == GTA_V_IGDB_ID || igdbId == FIVEM_IGDB_ID || igdbId == RAGE_MP_IGDB_ID
                           || gameName?.Contains("Grand Theft Auto", StringComparison.OrdinalIgnoreCase) == true
@@ -91,49 +90,61 @@ namespace Segra.Backend.Games
                     _ = _gameIntegration.Start();
                 }
 
-#if ENABLE_ML_DETECTION
                 if (gameName != null)
                 {
                     var safeGameId = SanitizeGameId(gameName);
                     if (ModelService.HasModelForGame(safeGameId))
                     {
-                        _eventDefinitions = ModelService.LoadEventDefinitions(safeGameId);
-                        _cooldownTracker = new CooldownTracker();
-                        _visualDetector = new VisualEventDetector();
-                        _visualDetector.DetectionsAvailable += detections =>
+                        // Only start ML detection if the integration is enabled
+                        bool mlEnabled = (igdbId == OVERWATCH_IGDB_ID || gameName.Equals("Overwatch", StringComparison.OrdinalIgnoreCase))
+                            ? integrations.Overwatch.Enabled
+                            : true;
+
+                        if (!mlEnabled)
                         {
-                            var defs = _eventDefinitions;
-                            if (defs == null) return;
+                            Log.Information("ML detection skipped for {GameName} — integration disabled", gameName);
+                        }
+                        else
+                        {
+                            _visualDetector?.Stop();
+                            _visualDetector = null;
+                            _cooldownTracker = null;
+                            _eventDefinitions = null;
 
-                            // Check if any exclusion events are active this frame
-                            var now = DateTime.Now;
-                            bool exclusionActive = detections.Any(d =>
+                            _eventDefinitions = ModelService.LoadEventDefinitions(safeGameId);
+                            _cooldownTracker = new CooldownTracker();
+                            _visualDetector = new VisualEventDetector(500);
+                            _visualDetector.DetectionsAvailable += detections =>
                             {
-                                var def = defs.FirstOrDefault(ev => ev.ClassId == d.ClassId);
-                                return def != null && def.Type == EventType.Exclusion;
-                            });
+                                var defs = _eventDefinitions;
+                                if (defs == null) return;
 
-                            foreach (var detection in detections)
-                            {
-                                var def = defs.FirstOrDefault(d => d.ClassId == detection.ClassId);
-                                if (def == null || def.Type == EventType.Exclusion) continue;
-                                // Suppress trigger bookmarks while an exclusion UI is visible
-                                if (exclusionActive)
+                                var now = DateTime.Now;
+                                bool exclusionActive = detections.Any(d =>
                                 {
-                                    Log.Debug("Suppressing trigger {ClassId} ({Name}) due to active exclusion",
-                                        detection.ClassId, def.Name);
-                                    continue;
+                                    var def = defs.FirstOrDefault(ev => ev.ClassId == d.ClassId);
+                                    return def != null && def.Type == EventType.Exclusion;
+                                });
+
+                                foreach (var detection in detections)
+                                {
+                                    var def = defs.FirstOrDefault(d => d.ClassId == detection.ClassId);
+                                    if (def == null || def.Type == EventType.Exclusion) continue;
+                                    if (exclusionActive)
+                                    {
+                                        Log.Debug("Suppressing trigger {ClassId} ({Name}) due to active exclusion",
+                                            detection.ClassId, def.Name);
+                                        continue;
+                                    }
+                                    _cooldownTracker.ProcessDetection(detection, def, now);
                                 }
-                                if (!_cooldownTracker.CanDetect(detection.ClassId, 1000, now)) continue;
-                                _cooldownTracker.Record(detection.ClassId, now);
-                                _cooldownTracker.CreateBookmark(detection, def, now);
-                            }
-                        };
-                        _visualDetector.Start(safeGameId);
-                        Log.Information("ML detection started for {GameName}", gameName);
+                                _cooldownTracker.Cleanup(now);
+                            };
+                            _visualDetector.Start(safeGameId);
+                            Log.Information("ML detection started for {GameName}", gameName);
+                        }
                     }
                 }
-#endif
             }
             finally
             {
@@ -146,12 +157,10 @@ namespace Segra.Backend.Games
             await _lock.WaitAsync();
             try
             {
-#if ENABLE_ML_DETECTION
                 _visualDetector?.Stop();
                 _visualDetector = null;
                 _cooldownTracker = null;
                 _eventDefinitions = null;
-#endif
 
                 if (_gameIntegration != null)
                 {
@@ -166,12 +175,10 @@ namespace Segra.Backend.Games
             }
         }
 
-#if ENABLE_ML_DETECTION
         private static string SanitizeGameId(string gameName)
         {
             return string.Concat(gameName.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_'))
                 .Trim().ToLowerInvariant();
         }
-#endif
     }
 }

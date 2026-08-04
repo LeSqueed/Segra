@@ -88,11 +88,10 @@ const GAME_INTEGRATIONS: GameIntegration[] = [
   },
   {
     id: 'overwatch',
-    name: 'Overwatch (AI)',
+    name: 'Overwatch',
     settingsKey: 'overwatch',
-    bookmarks: ['Elimination', 'Assist'],
-    backgroundImage: '',
-    coverOpacity: 25,
+    bookmarks: ['Eliminations', 'Assists'],
+    backgroundImage: 'https://segra.tv/api/games/cover/coc99p',
     isBeta: true,
   },
 ];
@@ -185,7 +184,7 @@ export default function GameIntegrationsSection() {
       gameIntegrations: {
         ...settings.gameIntegrations,
         [settingsKey]: {
-          ...(settings.gameIntegrations[settingsKey] ?? { enabled: true }),
+          ...settings.gameIntegrations[settingsKey],
           enabled,
         },
       },
@@ -205,7 +204,7 @@ export default function GameIntegrationsSection() {
           <GameIntegrationCard
             key={integration.id}
             integration={integration}
-            enabled={settings.gameIntegrations[integration.settingsKey]?.enabled ?? false}
+            enabled={settings.gameIntegrations[integration.settingsKey].enabled}
             showBackground={settings.showGameBackground}
             isRecording={appState.recording != null || appState.preRecording != null}
             onToggle={(enabled) => handleToggle(integration.settingsKey, enabled)}

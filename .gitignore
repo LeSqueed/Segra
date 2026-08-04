@@ -383,3 +383,6 @@ yolo11n.pt
 debug_*.png
 debug_*.jpg
 .venv/
+# Dataset/samples for ML training data
+data/training/**/dataset/
+data/training/**/samples/

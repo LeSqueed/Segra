@@ -1,5 +1,3 @@
-#if ENABLE_ML_DETECTION
-
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
@@ -15,7 +13,7 @@ namespace Segra.Backend.Detection;
 public class VisualEventDetector : IDisposable
 {
     private const int ModelInputSize = 640;
-    private const int FpsDivisor = 60;
+    private const int FpsDivisor = 30;
     private const int ObsSubscribeWidth = 1920;
     private const int ObsSubscribeHeight = 1080;
     private readonly int _detectionIntervalMs;
@@ -131,6 +129,9 @@ public class VisualEventDetector : IDisposable
         catch (Exception ex)
         {
             Log.Warning(ex, "VisualEventDetector: frame copy error");
+        }
+        finally
+        {
             Interlocked.Exchange(ref _isProcessing, 0);
         }
     }
@@ -159,50 +160,55 @@ public class VisualEventDetector : IDisposable
                     var allResults = new List<DetectionResult>();
                     var fW = frameData.Width;
                     var fH = frameData.Height;
-                    var fPixels = fW * fH;
 
                     var grayFrame = BgraToGray(frameData.Buffer, fW, fH);
-
-                    // Skip near-black frames (loading screens, transitions) — they can produce NaN in the model
-                    int brightPixels = 0;
-                    int totalPixels = fW * fH;
-                    for (int i = 0; i < totalPixels && brightPixels <= 10; i++)
+                    try
                     {
-                        if (grayFrame[i] > 15) brightPixels++;
-                    }
-                    if (brightPixels <= 10)
-                    {
-                        Log.Debug("DetectionLoop: skipping near-black frame");
-                        continue;
-                    }
-
-                    foreach (var group in _regionGroups)
-                    {
-                        var cropW = (int)(group.W * fW);
-                        var cropH = (int)(group.H * fH);
-                        var cropX = (int)(group.X * fW);
-                        var cropY = (int)(group.Y * fH);
-
-                        if (cropW <= 0 || cropH <= 0) continue;
-                        if (cropX + cropW > fW) cropW = fW - cropX;
-                        if (cropY + cropH > fH) cropH = fH - cropY;
-                        if (cropW <= 0 || cropH <= 0) continue;
-
-                        var resized = CropAndResizeGray(grayFrame, fW, fH, cropX, cropY, cropW, cropH, ModelInputSize, ModelInputSize);
-
-                        try
+                        // Skip near-black frames (loading screens, transitions) — they can produce NaN in the model
+                        int brightPixels = 0;
+                        int totalPixels = fW * fH;
+                        for (int i = 0; i < totalPixels && brightPixels <= 10; i++)
                         {
-                            var results = RunInferenceOnGray(session, resized);
-                            if (results != null)
+                            if (grayFrame[i] > 15) brightPixels++;
+                        }
+                        if (brightPixels <= 10)
+                        {
+                            Log.Debug("DetectionLoop: skipping near-black frame");
+                            continue;
+                        }
+
+                        foreach (var group in _regionGroups)
+                        {
+                            var cropW = (int)(group.W * fW);
+                            var cropH = (int)(group.H * fH);
+                            var cropX = (int)(group.X * fW);
+                            var cropY = (int)(group.Y * fH);
+
+                            if (cropW <= 0 || cropH <= 0) continue;
+                            if (cropX + cropW > fW) cropW = fW - cropX;
+                            if (cropY + cropH > fH) cropH = fH - cropY;
+                            if (cropW <= 0 || cropH <= 0) continue;
+
+                            var resized = CropAndResizeGray(grayFrame, fW, fH, cropX, cropY, cropW, cropH, ModelInputSize, ModelInputSize);
+
+                            try
                             {
-                                MapDetectionsToFullFrame(results, group, fW, fH);
-                                allResults.AddRange(results);
+                                var results = RunInferenceOnGray(session, resized);
+                                if (results != null)
+                                {
+                                    MapDetectionsToFullFrame(results, group, fW, fH);
+                                    allResults.AddRange(results);
+                                }
+                            }
+                            finally
+                            {
+                                ArrayPool<byte>.Shared.Return(resized);
                             }
                         }
-                        finally
-                        {
-                            ArrayPool<byte>.Shared.Return(resized);
-                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(grayFrame);
                     }
 
                     Log.Debug("DetectionLoop: {Count} results across {Groups} groups", allResults.Count, _regionGroups.Count);
@@ -389,7 +395,7 @@ public class VisualEventDetector : IDisposable
     internal static byte[] BgraToGray(byte[] bgra, int w, int h)
     {
         var pixels = w * h;
-        var gray = new byte[pixels];
+        var gray = ArrayPool<byte>.Shared.Rent(pixels);
         for (int i = 0; i < pixels; i++)
         {
             var srcIdx = i * 4;
@@ -404,7 +410,7 @@ public class VisualEventDetector : IDisposable
     internal static byte[] CropAndResizeGray(byte[] srcGray, int srcW, int srcH,
         int cropX, int cropY, int cropW, int cropH, int dstW, int dstH)
     {
-        var crop = new byte[cropW * cropH];
+        var crop = ArrayPool<byte>.Shared.Rent(cropW * cropH);
         for (int y = 0; y < cropH; y++)
         {
             Array.Copy(srcGray, (cropY + y) * srcW + cropX, crop, y * cropW, cropW);
@@ -434,6 +440,7 @@ public class VisualEventDetector : IDisposable
                 dst[dy * dstW + dx] = (byte)v;
             }
         }
+        ArrayPool<byte>.Shared.Return(crop);
         return dst;
     }
 
@@ -465,12 +472,12 @@ public class VisualEventDetector : IDisposable
 
                 var outputNames = session.OutputMetadata.Keys.ToList();
 
-                using (var runOptions = new RunOptions())
-                using (var results = session.Run(container, outputNames, runOptions))
-                {
-                    var result = results.First().AsTensor<float>().ToArray();
-                    return ParseYoloOutput(result.AsSpan(), inputSize);
-                }
+                    using (var runOptions = new RunOptions())
+                    using (var results = session.Run(container, outputNames, runOptions))
+                    {
+                        var result = results.First().AsTensor<float>().ToArray();
+                        return ParseYoloOutput(result.AsSpan(), inputSize, _numClasses);
+                    }
             }
             finally
             {
@@ -495,11 +502,10 @@ public class VisualEventDetector : IDisposable
     }
 
     private static List<DetectionResult> ParseYoloOutput(
-        ReadOnlySpan<float> output, int inputSize)
+        ReadOnlySpan<float> output, int inputSize, int numClasses)
     {
         var results = new List<DetectionResult>();
-        var numDetections = 8400;
-        var numClasses = output.Length / numDetections - 4;
+        var numDetections = output.Length / (4 + numClasses);
 
         for (int i = 0; i < numDetections; i++)
         {
@@ -564,4 +570,4 @@ public class VisualEventDetector : IDisposable
         GC.SuppressFinalize(this);
     }
 }
-#endif
+
