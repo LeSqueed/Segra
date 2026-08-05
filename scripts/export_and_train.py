@@ -70,33 +70,32 @@ def group_labels_by_region(labels):
         r = get_region(orig_id) if orig_id else None
         items.append((r, lbl))
 
-    # Group by region: merge overlapping regions
-    groups = []
-    for r, lbl in items:
-        merged = False
-        for g in groups:
-            gr = g["region"]
-            if gr is None and r is None:
-                g["labels"].append(lbl)
-                merged = True
+    # Merging grows a group's bounds, which can open overlaps with groups already passed
+    # over. Repeating until a pass finds nothing makes the result independent of label
+    # order; stopping at the first match was not. Must stay in lockstep with
+    # BuildRegionGroups in Backend/Detection/VisualEventDetector.cs, or the model is
+    # trained on different crops than it is served.
+    groups = [{"region": r, "labels": [lbl]} for r, lbl in items]
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                a, b = groups[i], groups[j]
+                if a["region"] is not None and b["region"] is not None:
+                    if not overlap(a["region"], b["region"]):
+                        continue
+                    a["region"] = merge_regions(a["region"], b["region"])
+                # If either side has no region the two always merge and the earlier
+                # group's region wins, matching the previous behaviour.
+                a["labels"].extend(b["labels"])
+                del groups[j]
+                changed = True
                 break
-            elif gr is not None and r is not None and overlap(gr, r):
-                g["region"] = merge_regions(gr, r)
-                g["labels"].append(lbl)
-                merged = True
+            if changed:
                 break
-            elif gr is None and r is not None:
-                # No region group absorbs a with-region label into no-region
-                g["labels"].append(lbl)
-                merged = True
-                break
-            elif gr is not None and r is None:
-                # With-region group absorbs a no-region label
-                g["labels"].append(lbl)
-                merged = True
-                break
-        if not merged:
-            groups.append({"region": r, "labels": [lbl]})
+
     return [(g["region"], g["labels"]) for g in groups]
 
 def crop_and_resize(src_path, region, dst_path, labels_for_crop, brightness=None):
